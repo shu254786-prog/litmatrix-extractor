@@ -1,0 +1,19 @@
+# Dependencies & Build
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+
+# Logs & OS
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# Unrelated pre-existing workspace assets
+投稿截图/
+cover_16x9.jpg
