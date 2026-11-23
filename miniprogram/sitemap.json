@@ -1,0 +1,9 @@
+{
+  "desc": "LitMatrix 文献综述矩阵提取器小程序",
+  "rules": [
+    {
+      "action": "allow",
+      "page": "*"
+    }
+  ]
+}

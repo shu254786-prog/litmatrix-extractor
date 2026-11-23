@@ -1,0 +1,46 @@
+<view class="container">
+  <view class="card">
+    <view class="field">
+      <text class="label">后端服务地址 (HTTPS 域名或本地地址)</text>
+      <input
+        class="input"
+        value="{{serverBaseUrl}}"
+        bindinput="onInputServer"
+        placeholder="https://api.your-domain.com"
+      />
+      <text class="hint">
+        本地调试填 http://localhost:3001（需在开发者工具关闭合法域名校验）；正式上线须填写已在微信公众平台备案配置的 HTTPS 域名。
+      </text>
+    </view>
+
+    <view class="field">
+      <text class="label">Google AI Studio API Key（可选）</text>
+      <input
+        class="input"
+        password="{{true}}"
+        value="{{apiKey}}"
+        bindinput="onInputKey"
+        placeholder="若服务端已配置 GEMINI_API_KEY 可留空"
+      />
+    </view>
+
+    <view class="field">
+      <text class="label">Gemini 提取模型</text>
+      <picker mode="selector" range="{{modelLabels}}" value="{{modelIndex}}" bindchange="onModelChange">
+        <view class="picker-box">{{modelLabels[modelIndex]}} ▾</view>
+      </picker>
+    </view>
+
+    <view class="field">
+      <text class="label">总结输出语言</text>
+      <picker mode="selector" range="{{langLabels}}" value="{{langIndex}}" bindchange="onLangChange">
+        <view class="picker-box">{{langLabels[langIndex]}} ▾</view>
+      </picker>
+    </view>
+
+    <view class="btn-row">
+      <button class="btn-secondary test-btn" bindtap="onTestHealth">测试后端连通性</button>
+      <button class="btn-primary save-btn" bindtap="onSave">保存并返回</button>
+    </view>
+  </view>
+</view>

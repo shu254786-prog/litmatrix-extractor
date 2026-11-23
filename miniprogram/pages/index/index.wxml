@@ -1,0 +1,207 @@
+<view class="container">
+  <!-- Header Card -->
+  <view class="card header-card">
+    <view class="header-top">
+      <view>
+        <text class="app-title">文献综述矩阵提取器</text>
+        <view class="app-subtitle">Gemini AI Studio · 5 维对比 + 页码溯源</view>
+      </view>
+      <button class="btn-setting" bindtap="goSettings">⚙️ 设置</button>
+    </view>
+
+    <view class="status-row">
+      <view class="status-pill {{serverOnline ? 'pill-ok' : 'pill-warn'}}">
+        {{serverOnline ? '后端已连接' : '未连接后端'}}
+      </view>
+      <text class="model-text">模型: {{settings.model}}</text>
+    </view>
+
+    <view class="action-grid">
+      <button class="btn-primary main-btn" bindtap="onChoosePdfs" disabled="{{uploading}}">
+        {{uploading ? '正在上传 PDF...' : '📄 从微信聊天选 PDF (最多20篇)'}}
+      </button>
+      <view class="sub-actions">
+        <button class="btn-secondary sub-btn" bindtap="onLoadDemo" disabled="{{uploading}}">
+          ✨ 加载示例矩阵
+        </button>
+        <button class="btn-secondary sub-btn" bindtap="onClearJob" wx:if="{{papers.length > 0}}">
+          🗑️ 清空
+        </button>
+      </view>
+    </view>
+  </view>
+
+  <!-- Progress Card -->
+  <view class="card progress-card" wx:if="{{papers.length > 0}}">
+    <view class="progress-head">
+      <text class="progress-title">提取进度：{{doneCount}} / {{papers.length}} 篇</text>
+      <text class="progress-pct">{{progressPct}}%</text>
+    </view>
+    <progress percent="{{progressPct}}" stroke-width="6" activeColor="#4f46e5" backgroundColor="#e2e8f0" border-radius="6" />
+    <view class="queue-chips">
+      <view
+        wx:for="{{papers}}"
+        wx:key="id"
+        class="queue-chip chip-{{item.status}}"
+        bindtap="onOpenPaper"
+        data-id="{{item.id}}"
+      >
+        <text class="chip-name">{{item.fileName}}</text>
+        <text class="chip-state">
+          {{item.status === 'done' ? '✓' : item.status === 'extracting' ? '解析中' : item.status === 'error' ? '失败' : '排队'}}
+        </text>
+      </view>
+    </view>
+    <button
+      wx:if="{{errorCount > 0 && !isPolling}}"
+      class="btn-secondary retry-btn"
+      bindtap="onRetryFailed"
+    >
+      重试失败论文 ({{errorCount}})
+    </button>
+  </view>
+
+  <!-- View Switcher -->
+  <view class="view-tabs" wx:if="{{doneCount > 0}}">
+    <view class="tab-item {{viewMode === 'cards' ? 'tab-active' : ''}}" bindtap="setViewMode" data-mode="cards">
+      卡片视图 ({{doneCount}})
+    </view>
+    <view class="tab-item {{viewMode === 'table' ? 'tab-active' : ''}}" bindtap="setViewMode" data-mode="table">
+      横向矩阵表格
+    </view>
+  </view>
+
+  <!-- Cards View -->
+  <view wx:if="{{doneCount > 0 && viewMode === 'cards'}}">
+    <view
+      wx:for="{{completedPapers}}"
+      wx:key="id"
+      class="card paper-card"
+      bindtap="onOpenPaper"
+      data-id="{{item.id}}"
+    >
+      <view class="paper-head">
+        <text class="paper-title">{{item.extraction.title}}</text>
+        <text class="demo-badge" wx:if="{{item.isDemo}}">示例</text>
+      </view>
+      <view class="paper-meta">
+        {{item.extraction.authors}} · {{item.extraction.year}} · {{item.extraction.venue}}
+      </view>
+
+      <view class="dim-preview">
+        <view class="dim-row">
+          <text class="dim-label">研究问题</text>
+          <text class="dim-text">{{item.extraction.research_question.summary}}</text>
+        </view>
+        <view class="dim-row">
+          <text class="dim-label">核心方法</text>
+          <text class="dim-text">{{item.extraction.methodology.summary}}</text>
+        </view>
+        <view class="dim-row">
+          <text class="dim-label">数据集</text>
+          <text class="dim-text">{{item.extraction.datasets.summary}}</text>
+        </view>
+      </view>
+
+      <view class="card-footer">
+        <view class="page-badges">
+          <text class="tag tag-page" wx:if="{{item.extraction.research_question.citations.length}}">
+            问题 P.{{item.extraction.research_question.citations[0].pdf_page}}
+          </text>
+          <text class="tag tag-page" wx:if="{{item.extraction.methodology.citations.length}}">
+            方法 P.{{item.extraction.methodology.citations[0].pdf_page}}
+          </text>
+          <text class="tag tag-page" wx:if="{{item.extraction.conclusions.citations.length}}">
+            结论 P.{{item.extraction.conclusions.citations[0].pdf_page}}
+          </text>
+        </view>
+        <text class="detail-link">查看 5 维溯源 ›</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- Horizontal Scroll Matrix Table View -->
+  <scroll-view scroll-x="true" class="matrix-scroll" wx:if="{{doneCount > 0 && viewMode === 'table'}}">
+    <view class="matrix-table">
+      <view class="matrix-tr matrix-thead">
+        <view class="matrix-th col-title">论文标题</view>
+        <view class="matrix-th col-dim">研究问题</view>
+        <view class="matrix-th col-dim">方法</view>
+        <view class="matrix-th col-dim">数据集</view>
+        <view class="matrix-th col-dim">结论</view>
+        <view class="matrix-th col-dim">局限性</view>
+      </view>
+      <view
+        wx:for="{{completedPapers}}"
+        wx:key="id"
+        class="matrix-tr"
+        bindtap="onOpenPaper"
+        data-id="{{item.id}}"
+      >
+        <view class="matrix-td col-title">
+          <text class="td-title">{{item.extraction.title}}</text>
+          <text class="td-meta">{{item.extraction.authors}} ({{item.extraction.year}})</text>
+        </view>
+        <view class="matrix-td col-dim">
+          <text>{{item.extraction.research_question.summary}}</text>
+          <text class="td-page" wx:if="{{item.extraction.research_question.citations.length}}">
+            [P.{{item.extraction.research_question.citations[0].pdf_page}}]
+          </text>
+        </view>
+        <view class="matrix-td col-dim">
+          <text>{{item.extraction.methodology.summary}}</text>
+          <text class="td-page" wx:if="{{item.extraction.methodology.citations.length}}">
+            [P.{{item.extraction.methodology.citations[0].pdf_page}}]
+          </text>
+        </view>
+        <view class="matrix-td col-dim">
+          <text>{{item.extraction.datasets.summary}}</text>
+          <text class="td-page" wx:if="{{item.extraction.datasets.citations.length}}">
+            [P.{{item.extraction.datasets.citations[0].pdf_page}}]
+          </text>
+        </view>
+        <view class="matrix-td col-dim">
+          <text>{{item.extraction.conclusions.summary}}</text>
+          <text class="td-page" wx:if="{{item.extraction.conclusions.citations.length}}">
+            [P.{{item.extraction.conclusions.citations[0].pdf_page}}]
+          </text>
+        </view>
+        <view class="matrix-td col-dim">
+          <text>{{item.extraction.limitations.summary}}</text>
+          <text class="td-page" wx:if="{{item.extraction.limitations.citations.length}}">
+            [P.{{item.extraction.limitations.citations[0].pdf_page}}]
+          </text>
+        </view>
+      </view>
+    </view>
+  </scroll-view>
+
+  <!-- Empty State -->
+  <view class="card empty-card" wx:if="{{papers.length === 0}}">
+    <text class="empty-title">准备就绪 · 一键生成综述矩阵</text>
+    <text class="empty-desc">
+      可将论文 PDF 发送到微信「文件传输助手」，再点击上方按钮批量勾选 1–20 篇 PDF，自动抽成对比表并导出 Excel 发送到电脑。
+    </text>
+  </view>
+
+  <!-- Synthesis Result Modal -->
+  <view class="modal-mask" wx:if="{{showSynthesis}}" bindtap="closeSynthesis">
+    <view class="modal-box" catchtap="noop">
+      <view class="modal-head">
+        <text class="modal-title">AI 横向对比综述草稿</text>
+        <text class="modal-close" bindtap="closeSynthesis">✕</text>
+      </view>
+      <scroll-view scroll-y="true" class="modal-body">
+        <text selectable="true" class="synthesis-text">{{synthesisText}}</text>
+      </scroll-view>
+      <button class="btn-primary modal-copy" bindtap="copySynthesis">一键复制综述文本</button>
+    </view>
+  </view>
+
+  <!-- Bottom Export Bar -->
+  <view class="bottom-bar" wx:if="{{doneCount > 0}}">
+    <button class="bar-btn bar-excel" bindtap="onExportExcel">📊 导出 Excel</button>
+    <button class="bar-btn bar-md" bindtap="onCopyMarkdown">📝 复制 MD</button>
+    <button class="bar-btn bar-ai" bindtap="onSynthesize" wx:if="{{doneCount >= 2}}">✨ 横向综述</button>
+  </view>
+</view>

@@ -1,0 +1,44 @@
+<view class="container" wx:if="{{paper}}">
+  <view class="card meta-card">
+    <text class="paper-title">{{paper.extraction.title}}</text>
+    <view class="paper-sub">
+      {{paper.extraction.authors}} · {{paper.extraction.year}} · {{paper.extraction.venue}}
+    </view>
+    <view class="paper-file">
+      PDF: {{paper.fileName}} ({{paper.pageCount || paper.extraction.total_pages_detected}} 页)
+    </view>
+  </view>
+
+  <view wx:for="{{sections}}" wx:key="key" class="card sec-card">
+    <view class="sec-head">
+      <text class="sec-title">{{item.label}}</text>
+    </view>
+
+    <view class="kw-row" wx:if="{{item.data.keywords.length}}">
+      <text wx:for="{{item.data.keywords}}" wx:for-item="kw" wx:key="*this" class="tag">
+        {{kw}}
+      </text>
+    </view>
+
+    <text selectable="true" class="sec-summary">{{item.data.summary}}</text>
+
+    <view class="cite-list" wx:if="{{item.data.citations.length}}">
+      <view
+        wx:for="{{item.data.citations}}"
+        wx:for-item="cit"
+        wx:key="index"
+        class="cite-box"
+        bindtap="onCopyQuote"
+        data-quote="{{cit.quote}}"
+        data-page="{{cit.pdf_page}}"
+      >
+        <view class="cite-top">
+          <text class="tag tag-page">PDF P.{{cit.pdf_page}}</text>
+          <text class="cite-sec">{{cit.section || '正文'}}</text>
+          <text class="copy-hint">点击复制摘录</text>
+        </view>
+        <text class="cite-quote">“{{cit.quote}}”</text>
+      </view>
+    </view>
+  </view>
+</view>
