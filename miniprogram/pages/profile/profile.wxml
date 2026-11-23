@@ -1,0 +1,104 @@
+<view class="profile-page">
+  <ios-navbar title="我的" />
+
+  <view class="profile-body">
+    <!-- Apple ID Style User Header Card -->
+    <view class="ios-card user-card ios-enter" hover-class="ios-press" bindtap="onTapProfile">
+      <image
+        wx:if="{{user && user.avatarUrl}}"
+        class="avatar"
+        src="{{user.avatarUrl}}"
+        mode="aspectFill"
+      />
+      <view wx:else class="avatar-fallback">
+        <text>{{user ? '研' : '👤'}}</text>
+      </view>
+      <view class="user-info">
+        <text class="user-name">{{user ? user.nickName : '点击登录微信账号'}}</text>
+        <text class="user-sub">
+          {{user ? (user.isGuest ? '当前为访客体验模式 · 点击绑定微信' : '微信已登录 · 云端工作区同步中') : '登录后同步文献历史与个人配置'}}
+        </text>
+      </view>
+      <text class="chevron">›</text>
+    </view>
+
+    <!-- Settings Group 1: AI Engine -->
+    <view class="ios-section-title">AI 引擎与模型配置</view>
+    <view class="ios-group ios-enter ios-enter-delay-1">
+      <view class="ios-cell ios-cell-border" hover-class="ios-press" bindtap="goSettings">
+        <view class="cell-left">
+          <view class="cell-ico bg-indigo">⚡</view>
+          <text class="cell-title">模型与 AI Studio Key</text>
+        </view>
+        <view class="cell-right">
+          <text class="cell-val">{{settings.model}}</text>
+          <text class="chevron">›</text>
+        </view>
+      </view>
+      <view class="ios-cell" hover-class="ios-press" bindtap="onTestHealth">
+        <view class="cell-left">
+          <view class="cell-ico bg-green">📡</view>
+          <text class="cell-title">后端服务连通性检测</text>
+        </view>
+        <view class="cell-right">
+          <text class="cell-val">{{serverOnline ? '在线' : '检测'}}</text>
+          <text class="chevron">›</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- Settings Group 2: WeChat Ecosystem -->
+    <view class="ios-section-title">微信生态与分享</view>
+    <view class="ios-group ios-enter ios-enter-delay-2">
+      <button class="ios-cell ios-cell-border cell-btn" open-type="share" hover-class="ios-press">
+        <view class="cell-left">
+          <view class="cell-ico bg-blue">↗️</view>
+          <text class="cell-title">推荐 LitMatrix 给科研同门</text>
+        </view>
+        <text class="chevron">›</text>
+      </button>
+      <button class="ios-cell ios-cell-border cell-btn" open-type="feedback" hover-class="ios-press">
+        <view class="cell-left">
+          <view class="cell-ico bg-amber">💬</view>
+          <text class="cell-title">意见反馈与异常上报</text>
+        </view>
+        <text class="chevron">›</text>
+      </button>
+      <button class="ios-cell cell-btn" open-type="contact" hover-class="ios-press">
+        <view class="cell-left">
+          <view class="cell-ico bg-teal">🎧</view>
+          <text class="cell-title">联系客服与合作</text>
+        </view>
+        <text class="chevron">›</text>
+      </button>
+    </view>
+
+    <!-- Settings Group 3: Compliance & Cache -->
+    <view class="ios-section-title">隐私与系统</view>
+    <view class="ios-group ios-enter ios-enter-delay-3">
+      <view class="ios-cell ios-cell-border" hover-class="ios-press" bindtap="goPrivacy">
+        <view class="cell-left">
+          <view class="cell-ico bg-gray">🛡️</view>
+          <text class="cell-title">用户协议与隐私保护指引</text>
+        </view>
+        <text class="chevron">›</text>
+      </view>
+      <view class="ios-cell" hover-class="ios-press" bindtap="onClearCache">
+        <view class="cell-left">
+          <view class="cell-ico bg-red">🧹</view>
+          <text class="cell-title">清理本地缓存</text>
+        </view>
+        <text class="chevron">›</text>
+      </view>
+    </view>
+
+    <button
+      wx:if="{{user}}"
+      class="ios-btn-tinted logout-btn ios-enter ios-enter-delay-3"
+      hover-class="ios-press"
+      bindtap="onLogout"
+    >
+      退出当前登录
+    </button>
+  </view>
+</view>

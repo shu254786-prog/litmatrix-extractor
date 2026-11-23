@@ -11,6 +11,10 @@ function getHeaders(extra = {}) {
   if (key) {
     headers['x-gemini-api-key'] = key;
   }
+  const token = (app.globalData.auth && app.globalData.auth.token) || '';
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
   return headers;
 }
 
@@ -30,7 +34,7 @@ function request(path, method = 'GET', data = undefined) {
         }
       },
       fail(err) {
-        reject(new Error(err.errMsg || '网络请求失败，请检查后端域名配置'));
+        reject(new Error(err.errMsg || '网络未连接，请检查后端域名配置'));
       },
     });
   });
@@ -88,18 +92,26 @@ function downloadExcel(jobId) {
 
 module.exports = {
   checkHealth: () => request('/api/health', 'GET'),
-  createJob: (settings) =>
+  wechatLogin: (payload) => request('/api/auth/wechat-login', 'POST', payload),
+  updateProfile: (payload) => request('/api/auth/profile', 'PATCH', payload),
+  listJobs: () => request('/api/jobs', 'GET'),
+  deleteJob: (jobId) => request(`/api/jobs/${jobId}`, 'DELETE'),
+  createJob: (settings, title) =>
     request('/api/jobs', 'POST', {
+      title,
       model: settings.model,
       language: settings.language,
       thinkingLevel: settings.thinkingLevel,
       concurrency: settings.concurrency,
+      customDimensions: settings.customDimensions || [],
     }),
   createDemoJob: () => request('/api/jobs/demo', 'POST'),
   uploadPdfToJob,
   startJob: (jobId, retry = false) =>
     request(`/api/jobs/${jobId}/start`, 'POST', { retry }),
   getJob: (jobId) => request(`/api/jobs/${jobId}`, 'GET'),
+  updatePaperSummary: (jobId, paperId, dimKey, summary) =>
+    request(`/api/jobs/${jobId}/papers/${paperId}`, 'PATCH', { dimKey, summary }),
   getMarkdown: (jobId) => request(`/api/jobs/${jobId}/export/markdown`, 'GET'),
   synthesizeJob: (jobId) => request(`/api/jobs/${jobId}/synthesize`, 'POST'),
   downloadExcel,

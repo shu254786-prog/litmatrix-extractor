@@ -14,6 +14,8 @@ export interface JobPaperInternal extends PaperRow {
 
 export interface ExtractionJob {
   id: string;
+  ownerId: string;
+  title: string;
   createdAt: number;
   updatedAt: number;
   status: 'idle' | 'running' | 'completed';
@@ -27,7 +29,7 @@ export interface ExtractionJob {
   apiKey: string;
 }
 
-const JOB_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
+const JOB_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours
 const jobs = new Map<string, ExtractionJob>();
 
 function cleanupExpiredJobs() {
@@ -40,6 +42,8 @@ function cleanupExpiredJobs() {
 }
 
 export function createJob(params: {
+  ownerId?: string;
+  title?: string;
   apiKey: string;
   model?: GeminiModelId;
   language?: OutputLanguage;
@@ -52,6 +56,8 @@ export function createJob(params: {
   const customDimensions = params.customDimensions ?? [];
   const job: ExtractionJob = {
     id,
+    ownerId: params.ownerId || 'anonymous',
+    title: params.title || `文献矩阵 ${new Date().toLocaleTimeString('zh-CN', { hour12: false })}`,
     createdAt: Date.now(),
     updatedAt: Date.now(),
     status: 'idle',
@@ -68,11 +74,13 @@ export function createJob(params: {
   return job;
 }
 
-export function createDemoJob(): ExtractionJob {
+export function createDemoJob(ownerId = 'anonymous'): ExtractionJob {
   cleanupExpiredJobs();
   const id = `demo_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const job: ExtractionJob = {
     id,
+    ownerId,
+    title: '经典 LLM 论文综述示例矩阵 (4 篇)',
     createdAt: Date.now(),
     updatedAt: Date.now(),
     status: 'completed',
@@ -93,9 +101,53 @@ export function getJob(jobId: string): ExtractionJob | undefined {
   return jobs.get(jobId);
 }
 
+export function listJobs(ownerId?: string) {
+  cleanupExpiredJobs();
+  const all = Array.from(jobs.values())
+    .filter((j) => !ownerId || j.ownerId === ownerId || j.ownerId === 'anonymous')
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+  return all.map((j) => serializeJob(j));
+}
+
+export function deleteJob(jobId: string): boolean {
+  return jobs.delete(jobId);
+}
+
+export function updatePaperSummaryInJob(
+  job: ExtractionJob,
+  paperId: string,
+  dimKey: string,
+  summary: string
+): boolean {
+  const paper = job.papers.find((p) => p.id === paperId);
+  if (!paper || !paper.extraction) return false;
+
+  if (
+    dimKey === 'research_question' ||
+    dimKey === 'methodology' ||
+    dimKey === 'datasets' ||
+    dimKey === 'conclusions' ||
+    dimKey === 'limitations'
+  ) {
+    paper.extraction[dimKey] = { ...paper.extraction[dimKey], summary };
+    job.updatedAt = Date.now();
+    return true;
+  }
+
+  const cd = paper.extraction.custom_dimensions?.find((c) => c.key === dimKey);
+  if (cd) {
+    cd.summary = summary;
+    job.updatedAt = Date.now();
+    return true;
+  }
+  return false;
+}
+
 export function serializeJob(job: ExtractionJob) {
   return {
     id: job.id,
+    ownerId: job.ownerId,
+    title: job.title,
     status: job.status,
     model: job.model,
     language: job.language,
@@ -177,7 +229,6 @@ export function startJobQueue(job: ExtractionJob, apiKeyOverride?: string) {
         paper.pageCount = extraction.total_pages_detected || 0;
         paper.durationMs = Date.now() - started;
         paper.modelUsed = job.model;
-        // Release raw PDF buffer once extracted to conserve RAM
         paper.pdfBuffer = undefined;
       } catch (err) {
         paper.status = 'error';

@@ -1,0 +1,63 @@
+<view class="lib-page">
+  <ios-navbar title="文献库" />
+
+  <view class="lib-body">
+    <!-- iOS Search Bar -->
+    <view class="ios-search-bar ios-enter">
+      <text class="search-ico">🔍</text>
+      <input
+        class="search-input"
+        value="{{query}}"
+        bindinput="onSearch"
+        placeholder="搜索矩阵批次、论文标题或作者..."
+        confirm-type="search"
+      />
+      <text wx:if="{{query}}" class="search-clear" bindtap="clearSearch">✕</text>
+    </view>
+
+    <!-- Loading Skeleton -->
+    <view wx:if="{{loading}}" class="ios-card">
+      <view class="ios-skeleton sk-1"></view>
+      <view class="ios-skeleton sk-2"></view>
+    </view>
+
+    <!-- Job Cards -->
+    <view wx:elif="{{filteredJobs.length > 0}}">
+      <view
+        wx:for="{{filteredJobs}}"
+        wx:key="id"
+        class="ios-card job-card ios-enter"
+        hover-class="ios-press"
+        bindtap="onOpenJob"
+        data-id="{{item.id}}"
+      >
+        <view class="job-top">
+          <view class="job-title-wrap">
+            <text class="job-title">{{item.title || '文献综述矩阵'}}</text>
+            <text class="job-time">{{item.timeLabel}} · {{item.model}}</text>
+          </view>
+          <view class="job-del" catchtap="onDeleteJob" data-id="{{item.id}}">删除</view>
+        </view>
+
+        <view class="job-papers" wx:if="{{item.papers.length > 0}}">
+          <view wx:for="{{item.papers}}" wx:for-item="p" wx:key="id" class="mini-paper">
+            <text class="mini-dot {{p.status === 'done' ? 'dot-ok' : 'dot-wait'}}"></text>
+            <text class="mini-name">{{(p.extraction && p.extraction.title) || p.fileName}}</text>
+          </view>
+        </view>
+
+        <view class="job-foot">
+          <text class="ios-pill">共 {{item.papers.length}} 篇</text>
+          <text class="open-link">载入工作台 ›</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- Empty State -->
+    <view wx:else class="ios-card empty-box ios-enter">
+      <view class="empty-ico">🗂️</view>
+      <text class="empty-title">暂无历史矩阵记录</text>
+      <text class="empty-sub">在「矩阵」页批量上传 PDF 或加载示例矩阵后，记录会自动汇总在此处方便随时检索导出。</text>
+    </view>
+  </view>
+</view>

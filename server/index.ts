@@ -8,12 +8,20 @@ import * as fs from 'node:fs';
 import { extractPaperMatrix, synthesizeLiteratureReview } from './geminiExtractor.js';
 import { buildExcelBuffer, buildMarkdownText } from './exportBuilder.js';
 import {
+  getSessionByToken,
+  loginWithWeChatCode,
+  updateSessionProfile,
+} from './auth.js';
+import {
   addPdfToJob,
   createDemoJob,
   createJob,
+  deleteJob,
   getJob,
+  listJobs,
   serializeJob,
   startJobQueue,
+  updatePaperSummaryInJob,
 } from './jobStore.js';
 import type { DimensionConfig, GeminiModelId, OutputLanguage } from '../src/types/matrix.js';
 
@@ -29,7 +37,7 @@ app.use(express.json({ limit: '10mb' }));
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50 MB max per PDF (Gemini PDF limit)
+    fileSize: 50 * 1024 * 1024, // 50 MB max per PDF
   },
 });
 
@@ -37,6 +45,20 @@ function resolveApiKey(req: express.Request): string {
   const headerKey = req.header('x-gemini-api-key')?.trim();
   const envKey = process.env.GEMINI_API_KEY?.trim();
   return headerKey || envKey || '';
+}
+
+function resolveBearerToken(req: express.Request): string {
+  const auth = req.header('authorization') || '';
+  if (auth.toLowerCase().startsWith('bearer ')) {
+    return auth.slice(7).trim();
+  }
+  return '';
+}
+
+function resolveOwnerId(req: express.Request): string {
+  const token = resolveBearerToken(req);
+  const session = getSessionByToken(token);
+  return session?.userId || 'anonymous';
 }
 
 // Optional WeChat msgSecCheck helper (enabled when WECHAT_APPID & WECHAT_APPSECRET are configured)
@@ -91,6 +113,61 @@ app.get('/api/health', (_req, res) => {
       process.env.WECHAT_APPID?.trim() && process.env.WECHAT_APPSECRET?.trim()
     ),
   });
+});
+
+// ---- WeChat Authentication Endpoints ----
+app.post('/api/auth/wechat-login', async (req, res) => {
+  try {
+    const { code, nickName, avatarUrl, isGuest } = req.body || {};
+    if (nickName) {
+      const safe = await checkWeChatTextSafety(String(nickName));
+      if (!safe) {
+        res.status(400).json({ error: '昵称包含违规内容，请修改后重试' });
+        return;
+      }
+    }
+    const result = await loginWithWeChatCode({
+      code,
+      nickName,
+      avatarUrl,
+      isGuest: Boolean(isGuest),
+    });
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : '登录失败' });
+  }
+});
+
+app.get('/api/auth/me', (req, res) => {
+  const token = resolveBearerToken(req);
+  const session = getSessionByToken(token);
+  if (!session) {
+    res.status(401).json({ error: '未登录或会话已过期' });
+    return;
+  }
+  res.json({ user: session });
+});
+
+app.patch('/api/auth/profile', async (req, res) => {
+  const token = resolveBearerToken(req);
+  if (!token) {
+    res.status(401).json({ error: '请先登录' });
+    return;
+  }
+  const { nickName, avatarUrl } = req.body || {};
+  if (nickName) {
+    const safe = await checkWeChatTextSafety(String(nickName));
+    if (!safe) {
+      res.status(400).json({ error: '昵称包含违规内容' });
+      return;
+    }
+  }
+  const updated = updateSessionProfile(token, { nickName, avatarUrl });
+  if (!updated) {
+    res.status(401).json({ error: '会话已过期，请重新登录' });
+    return;
+  }
+  res.json({ user: updated });
 });
 
 // ---- Web Synchronous Single-PDF Endpoint ----
@@ -182,11 +259,18 @@ app.post('/api/synthesize', async (req, res) => {
   }
 });
 
-// ---- Mini Program Async Batch Job Endpoints (avoids 60s wx.request timeout) ----
+// ---- Mini Program Async Batch Job & Library Endpoints ----
+app.get('/api/jobs', (req, res) => {
+  const ownerId = resolveOwnerId(req);
+  res.json({ jobs: listJobs(ownerId) });
+});
+
 app.post('/api/jobs', async (req, res) => {
   try {
     const apiKey = resolveApiKey(req);
+    const ownerId = resolveOwnerId(req);
     const {
+      title,
       model = 'gemini-4-hydrogen',
       language = 'zh',
       thinkingLevel = 'low',
@@ -206,6 +290,8 @@ app.post('/api/jobs', async (req, res) => {
     }
 
     const job = createJob({
+      ownerId,
+      title,
       apiKey,
       model,
       language,
@@ -220,8 +306,9 @@ app.post('/api/jobs', async (req, res) => {
   }
 });
 
-app.post('/api/jobs/demo', (_req, res) => {
-  const job = createDemoJob();
+app.post('/api/jobs/demo', (req, res) => {
+  const ownerId = resolveOwnerId(req);
+  const job = createDemoJob(ownerId);
   res.json({ job: serializeJob(job) });
 });
 
@@ -260,12 +347,11 @@ app.post('/api/jobs/:jobId/start', (req, res) => {
   const apiKey = resolveApiKey(req) || job.apiKey;
   if (!apiKey) {
     res.status(400).json({
-      error: '缺少 Google AI Studio API Key，请在小程序设置中填写或配置服务端 GEMINI_API_KEY。',
+      error: '缺少 Google AI Studio API Key，请在「我的 -> 模型与 API」中填写或配置服务端 GEMINI_API_KEY。',
     });
     return;
   }
 
-  // Re-queue failed papers if retry=true
   if (req.body?.retry) {
     for (const p of job.papers) {
       if (p.status === 'error' && p.pdfBuffer) {
@@ -283,6 +369,35 @@ app.get('/api/jobs/:jobId', (req, res) => {
   const job = getJob(String(req.params.jobId));
   if (!job) {
     res.status(404).json({ error: '任务不存在或已过期' });
+    return;
+  }
+  res.json({ job: serializeJob(job) });
+});
+
+app.delete('/api/jobs/:jobId', (req, res) => {
+  const ok = deleteJob(String(req.params.jobId));
+  res.json({ ok });
+});
+
+app.patch('/api/jobs/:jobId/papers/:paperId', async (req, res) => {
+  const job = getJob(String(req.params.jobId));
+  if (!job) {
+    res.status(404).json({ error: '任务不存在或已过期' });
+    return;
+  }
+  const { dimKey, summary } = req.body || {};
+  if (!dimKey || typeof summary !== 'string') {
+    res.status(400).json({ error: '参数无效' });
+    return;
+  }
+  const safe = await checkWeChatTextSafety(summary);
+  if (!safe) {
+    res.status(400).json({ error: '内容包含违规词汇' });
+    return;
+  }
+  const updated = updatePaperSummaryInJob(job, String(req.params.paperId), dimKey, summary);
+  if (!updated) {
+    res.status(404).json({ error: '未找到对应论文或维度' });
     return;
   }
   res.json({ job: serializeJob(job) });

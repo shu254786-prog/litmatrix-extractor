@@ -1,3 +1,6 @@
 {
-  "navigationBarTitleText": "LitMatrix · 文献矩阵"
+  "usingComponents": {
+    "ios-navbar": "/components/ios-navbar/ios-navbar"
+  },
+  "enablePullDownRefresh": true
 }

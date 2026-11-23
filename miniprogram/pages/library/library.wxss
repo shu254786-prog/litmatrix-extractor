@@ -1,0 +1,134 @@
+.lib-body {
+  padding: 20rpx 24rpx 48rpx;
+}
+
+.ios-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  background: rgba(118, 118, 128, 0.12);
+  border-radius: 20rpx;
+  padding: 14rpx 20rpx;
+  margin-bottom: 24rpx;
+}
+
+.search-ico {
+  font-size: 26rpx;
+}
+
+.search-input {
+  flex: 1;
+  font-size: 27rpx;
+  color: #000000;
+}
+
+.search-clear {
+  font-size: 24rpx;
+  color: #8E8E93;
+  padding: 4rpx 10rpx;
+}
+
+.sk-1 { height: 32rpx; width: 65%; margin-bottom: 14rpx; }
+.sk-2 { height: 24rpx; width: 90%; }
+
+.job-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14rpx;
+}
+
+.job-title-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
+.job-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #000000;
+}
+
+.job-time {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #8E8E93;
+}
+
+.job-del {
+  font-size: 24rpx;
+  color: #FF3B30;
+  font-weight: 500;
+  padding: 6rpx 14rpx;
+  border-radius: 12rpx;
+  background: rgba(255, 59, 48, 0.08);
+}
+
+.job-papers {
+  margin-top: 16rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx solid rgba(60, 60, 67, 0.08);
+}
+
+.mini-paper {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-bottom: 8rpx;
+}
+
+.mini-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-ok { background: #34C759; }
+.dot-wait { background: #FF9500; }
+
+.mini-name {
+  font-size: 24rpx;
+  color: #3A3A3C;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 14rpx;
+}
+
+.open-link {
+  font-size: 25rpx;
+  font-weight: 600;
+  color: #007AFF;
+}
+
+.empty-box {
+  text-align: center;
+  padding: 64rpx 32rpx;
+}
+
+.empty-ico {
+  font-size: 62rpx;
+  margin-bottom: 14rpx;
+}
+
+.empty-title {
+  display: block;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.empty-sub {
+  display: block;
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  color: #8E8E93;
+}

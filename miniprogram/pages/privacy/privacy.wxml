@@ -1,0 +1,26 @@
+<view class="privacy-page">
+  <ios-navbar title="协议与隐私指引" showBack="{{true}}" />
+  <view class="privacy-body ios-enter">
+    <view class="ios-card">
+      <text class="doc-title">LitMatrix 用户服务协议与隐私保护指引</text>
+      <text class="doc-date">更新日期：2026年11月23日</text>
+
+      <text class="sec-h">1. 我们收集的信息及用途</text>
+      <text class="sec-p">
+        • 微信基础登录信息：经您主动选择头像与昵称后，用于区分您的个人文献矩阵工作区与历史记录。\n
+        • 您主动上传的 PDF 文献：仅用于本次请求向 Gemini API 提取「研究问题 / 方法 / 数据集 / 结论 / 局限性」对比矩阵。提取完成后原始 PDF 二进制缓存立即释放。
+      </text>
+
+      <text class="sec-h">2. 数据存储与安全</text>
+      <text class="sec-p">
+        • 您在设置中填写的 Google AI Studio API Key 仅加密保存在您本地微信缓存中，通过 HTTPS 请求头转发，不作任何第三方售卖或持久化滥用。\n
+        • 任务结果仅保留在工作区内存会话中（12 小时自动清理），您可随时在「文献库」手动删除记录。
+      </text>
+
+      <text class="sec-h">3. 学术规范提示</text>
+      <text class="sec-p">
+        • 本工具提取的所有摘要均附带 PDF 物理页码与原文逐字摘录（Quote），请您在撰写正式论文前核对原文页码。
+      </text>
+    </view>
+  </view>
+</view>

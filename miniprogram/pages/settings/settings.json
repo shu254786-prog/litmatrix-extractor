@@ -1,3 +1,5 @@
 {
-  "navigationBarTitleText": "服务与模型设置"
+  "usingComponents": {
+    "ios-navbar": "/components/ios-navbar/ios-navbar"
+  }
 }

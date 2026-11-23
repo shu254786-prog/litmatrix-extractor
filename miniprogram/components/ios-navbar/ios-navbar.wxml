@@ -1,0 +1,21 @@
+<view class="ios-nav-wrap">
+  <view class="ios-nav-fixed" style="padding-top: {{statusBarHeight}}px;">
+    <view class="ios-nav-row" style="height: {{navBarHeight}}px; padding-right: {{capsuleRightPad}}px;">
+      <view class="ios-nav-left">
+        <view
+          wx:if="{{showBack}}"
+          class="ios-back-btn"
+          hover-class="ios-press"
+          bindtap="onBack"
+        >
+          <text class="ios-chevron">‹</text>
+          <text class="ios-back-text">返回</text>
+        </view>
+        <view wx:else class="ios-brand-dot"></view>
+        <text class="ios-nav-title">{{title}}</text>
+      </view>
+      <slot name="right"></slot>
+    </view>
+  </view>
+  <view style="height: {{totalNavHeight}}px;"></view>
+</view>

@@ -1,5 +1,3 @@
-const api = require('../../utils/api');
-
 const MODEL_IDS = [
   'gemini-4-hydrogen',
   'gemini-4-argon',
@@ -8,14 +6,17 @@ const MODEL_IDS = [
 ];
 
 const MODEL_LABELS = [
-  'Gemini 4 Hydrogen (推荐默认)',
-  'Gemini 4 Argon (深度推理)',
-  'Gemini 4 Carbon (旗舰高精度)',
-  'Gemini 3.5 Flash-Lite (极速批量)',
+  'Gemini 4 Hydrogen (推荐)',
+  'Gemini 4 Argon (推理增强)',
+  'Gemini 4 Carbon (旗舰)',
+  'Gemini 3.5 Flash-Lite (极速)',
 ];
 
 const LANG_IDS = ['zh', 'en'];
 const LANG_LABELS = ['中文学术总结', 'English'];
+
+const CONC_VALUES = [1, 2, 3, 4, 5];
+const CONC_LABELS = ['1 篇并行', '2 篇并行', '3 篇并行 (推荐)', '4 篇并行', '5 篇并行'];
 
 Page({
   data: {
@@ -25,18 +26,22 @@ Page({
     modelIndex: 0,
     langLabels: LANG_LABELS,
     langIndex: 0,
+    concLabels: CONC_LABELS,
+    concIndex: 2,
+    customDimensions: [],
+    newDimLabel: '',
   },
 
   onLoad() {
     const app = getApp();
     const s = app.globalData.settings;
-    const modelIndex = Math.max(0, MODEL_IDS.indexOf(s.model));
-    const langIndex = Math.max(0, LANG_IDS.indexOf(s.language));
     this.setData({
       serverBaseUrl: s.serverBaseUrl,
       apiKey: s.apiKey,
-      modelIndex,
-      langIndex,
+      modelIndex: Math.max(0, MODEL_IDS.indexOf(s.model)),
+      langIndex: Math.max(0, LANG_IDS.indexOf(s.language)),
+      concIndex: Math.max(0, CONC_VALUES.indexOf(s.concurrency || 3)),
+      customDimensions: s.customDimensions || [],
     });
   },
 
@@ -49,49 +54,60 @@ Page({
   },
 
   onModelChange(e) {
+    getApp().haptic('light');
     this.setData({ modelIndex: Number(e.detail.value) });
   },
 
   onLangChange(e) {
+    getApp().haptic('light');
     this.setData({ langIndex: Number(e.detail.value) });
   },
 
-  async onTestHealth() {
-    const app = getApp();
-    app.saveSettings({
-      serverBaseUrl: this.data.serverBaseUrl,
-      apiKey: this.data.apiKey,
+  onConcChange(e) {
+    getApp().haptic('light');
+    this.setData({ concIndex: Number(e.detail.value) });
+  },
+
+  onDimInput(e) {
+    this.setData({ newDimLabel: e.detail.value });
+  },
+
+  addCustomDim() {
+    const label = (this.data.newDimLabel || '').trim();
+    if (!label) return;
+    getApp().haptic('light');
+    const next = [
+      ...this.data.customDimensions,
+      {
+        key: `custom_${Date.now()}`,
+        label,
+        description: `提取论文中的「${label}」相关信息并附带页码溯源`,
+        isCore: false,
+      },
+    ];
+    this.setData({ customDimensions: next, newDimLabel: '' });
+  },
+
+  removeCustomDim(e) {
+    const key = e.currentTarget.dataset.key;
+    getApp().haptic('light');
+    this.setData({
+      customDimensions: this.data.customDimensions.filter((c) => c.key !== key),
     });
-    wx.showLoading({ title: '测试连接中...' });
-    try {
-      const res = await api.checkHealth();
-      wx.hideLoading();
-      wx.showModal({
-        title: '连接成功',
-        content: `后端在线！\n服务端预设 Key: ${res.hasServerApiKey ? '已配置' : '未配置'}\n内容安全校验: ${
-          res.wechatSafetyEnabled ? '已启用' : '未配置'
-        }`,
-        showCancel: false,
-      });
-    } catch (err) {
-      wx.hideLoading();
-      wx.showModal({
-        title: '连接失败',
-        content: err.message || '请确认服务已启动且域名/端口正确',
-        showCancel: false,
-      });
-    }
   },
 
   onSave() {
     const app = getApp();
+    app.haptic('medium');
     app.saveSettings({
       serverBaseUrl: this.data.serverBaseUrl,
       apiKey: this.data.apiKey,
       model: MODEL_IDS[this.data.modelIndex],
       language: LANG_IDS[this.data.langIndex],
+      concurrency: CONC_VALUES[this.data.concIndex],
+      customDimensions: this.data.customDimensions,
     });
-    wx.showToast({ title: '已保存', icon: 'success' });
-    setTimeout(() => wx.navigateBack(), 400);
+    wx.showToast({ title: '已保存配置', icon: 'success' });
+    setTimeout(() => wx.navigateBack(), 450);
   },
 });

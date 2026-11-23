@@ -1,46 +1,86 @@
-<view class="container">
-  <view class="card">
-    <view class="field">
-      <text class="label">后端服务地址 (HTTPS 域名或本地地址)</text>
-      <input
-        class="input"
-        value="{{serverBaseUrl}}"
-        bindinput="onInputServer"
-        placeholder="https://api.your-domain.com"
-      />
-      <text class="hint">
-        本地调试填 http://localhost:3001（需在开发者工具关闭合法域名校验）；正式上线须填写已在微信公众平台备案配置的 HTTPS 域名。
-      </text>
+<view class="settings-page">
+  <ios-navbar title="模型与 API 设置" showBack="{{true}}" />
+
+  <view class="settings-body">
+    <view class="ios-section-title">服务端与密钥</view>
+    <view class="ios-group ios-enter">
+      <view class="ios-cell ios-cell-border field-cell">
+        <text class="field-lbl">后端服务地址</text>
+        <input
+          class="field-input"
+          value="{{serverBaseUrl}}"
+          bindinput="onInputServer"
+          placeholder="https://api.your-domain.com"
+        />
+      </view>
+      <view class="ios-cell field-cell">
+        <text class="field-lbl">AI Studio Key</text>
+        <input
+          class="field-input"
+          password="{{true}}"
+          value="{{apiKey}}"
+          bindinput="onInputKey"
+          placeholder="可选，留空则用服务端 Key"
+        />
+      </view>
     </view>
 
-    <view class="field">
-      <text class="label">Google AI Studio API Key（可选）</text>
-      <input
-        class="input"
-        password="{{true}}"
-        value="{{apiKey}}"
-        bindinput="onInputKey"
-        placeholder="若服务端已配置 GEMINI_API_KEY 可留空"
-      />
-    </view>
-
-    <view class="field">
-      <text class="label">Gemini 提取模型</text>
+    <view class="ios-section-title">Gemini 模型与推理参数</view>
+    <view class="ios-group ios-enter ios-enter-delay-1">
       <picker mode="selector" range="{{modelLabels}}" value="{{modelIndex}}" bindchange="onModelChange">
-        <view class="picker-box">{{modelLabels[modelIndex]}} ▾</view>
+        <view class="ios-cell ios-cell-border" hover-class="ios-press">
+          <text class="cell-lbl">提取模型</text>
+          <view class="cell-val-row">
+            <text class="cell-val">{{modelLabels[modelIndex]}}</text>
+            <text class="chevron">›</text>
+          </view>
+        </view>
       </picker>
-    </view>
 
-    <view class="field">
-      <text class="label">总结输出语言</text>
       <picker mode="selector" range="{{langLabels}}" value="{{langIndex}}" bindchange="onLangChange">
-        <view class="picker-box">{{langLabels[langIndex]}} ▾</view>
+        <view class="ios-cell ios-cell-border" hover-class="ios-press">
+          <text class="cell-lbl">输出语言</text>
+          <view class="cell-val-row">
+            <text class="cell-val">{{langLabels[langIndex]}}</text>
+            <text class="chevron">›</text>
+          </view>
+        </view>
+      </picker>
+
+      <picker mode="selector" range="{{concLabels}}" value="{{concIndex}}" bindchange="onConcChange">
+        <view class="ios-cell" hover-class="ios-press">
+          <text class="cell-lbl">并发队列数</text>
+          <view class="cell-val-row">
+            <text class="cell-val">{{concLabels[concIndex]}}</text>
+            <text class="chevron">›</text>
+          </view>
+        </view>
       </picker>
     </view>
 
-    <view class="btn-row">
-      <button class="btn-secondary test-btn" bindtap="onTestHealth">测试后端连通性</button>
-      <button class="btn-primary save-btn" bindtap="onSave">保存并返回</button>
+    <view class="ios-section-title">自定义附加提取列（除默认五维外）</view>
+    <view class="ios-card ios-enter ios-enter-delay-2">
+      <view wx:if="{{customDimensions.length > 0}}" class="dim-tags">
+        <view wx:for="{{customDimensions}}" wx:key="key" class="custom-row">
+          <text class="custom-name">{{item.label}}</text>
+          <text class="custom-del" bindtap="removeCustomDim" data-key="{{item.key}}">移除</text>
+        </view>
+      </view>
+      <view class="add-dim-row">
+        <input
+          class="dim-input"
+          value="{{newDimLabel}}"
+          bindinput="onDimInput"
+          placeholder="例如：开源代码 / 消融实验"
+        />
+        <button class="ios-btn-tinted add-dim-btn" hover-class="ios-press" bindtap="addCustomDim">
+          ＋ 添加
+        </button>
+      </view>
     </view>
+
+    <button class="ios-btn-primary save-btn ios-enter ios-enter-delay-3" hover-class="ios-press" bindtap="onSave">
+      保存全部配置
+    </button>
   </view>
 </view>

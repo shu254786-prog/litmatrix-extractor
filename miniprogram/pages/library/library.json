@@ -1,0 +1,6 @@
+{
+  "usingComponents": {
+    "ios-navbar": "/components/ios-navbar/ios-navbar"
+  },
+  "enablePullDownRefresh": true
+}
