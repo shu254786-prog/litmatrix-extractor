@@ -1,0 +1,101 @@
+.poster-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: flex-end;
+}
+
+.poster-sheet {
+  width: 100%;
+  max-height: 90vh;
+  background: #F2F2F7;
+  border-radius: 32rpx 32rpx 0 0;
+  padding: 16rpx 28rpx calc(32rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet-grabber {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 999rpx;
+  background: #C7C7CC;
+  margin: 0 auto 18rpx;
+}
+
+.poster-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18rpx;
+}
+
+.poster-title {
+  font-size: 31rpx;
+  font-weight: 700;
+  color: #000000;
+}
+
+.poster-close {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #007AFF;
+  padding: 6rpx 10rpx;
+}
+
+.hidden-canvas {
+  position: fixed;
+  left: -9999px;
+  top: -9999px;
+  pointer-events: none;
+}
+
+.preview-wrap {
+  height: 62vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20rpx;
+}
+
+.poster-loading {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sk-poster {
+  width: 420rpx;
+  height: 560rpx;
+  border-radius: 24rpx;
+}
+
+.loading-txt {
+  margin-top: 16rpx;
+  font-size: 24rpx;
+  color: #8E8E93;
+}
+
+.poster-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 22rpx;
+  box-shadow: 0 16rpx 36rpx rgba(0, 0, 0, 0.14);
+}
+
+.poster-actions {
+  display: flex;
+  gap: 16rpx;
+}
+
+.act-btn {
+  flex: 1;
+  margin: 0;
+  padding: 20rpx 0;
+  line-height: 1.3;
+  font-size: 27rpx;
+}

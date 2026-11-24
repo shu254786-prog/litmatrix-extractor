@@ -70,15 +70,21 @@ export interface ProvenanceTarget {
 
 export type OutputLanguage = 'zh' | 'en';
 
+export type ModelProvider = 'gemini' | 'deepseek' | 'qwen' | 'custom';
+
 export type GeminiModelId =
   | 'gemini-4-hydrogen'
   | 'gemini-4-argon'
   | 'gemini-4-carbon'
   | 'gemini-3.5-flash-lite';
 
+export type AnyModelId = GeminiModelId | 'deepseek-chat' | 'deepseek-reasoner' | 'qwen-long' | 'qwen-plus' | 'qwen-max' | (string & {});
+
 export interface ExtractionSettings {
+  provider: ModelProvider;
   apiKey: string;
-  model: GeminiModelId;
+  customBaseUrl: string;
+  model: AnyModelId;
   language: OutputLanguage;
   concurrency: number;
   thinkingLevel: 'minimal' | 'low' | 'medium' | 'high';

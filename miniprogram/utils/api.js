@@ -9,6 +9,7 @@ function getHeaders(extra = {}) {
   const headers = { ...extra };
   const key = (app.globalData.settings.apiKey || '').trim();
   if (key) {
+    headers['x-llm-api-key'] = key;
     headers['x-gemini-api-key'] = key;
   }
   const token = (app.globalData.auth && app.globalData.auth.token) || '';
@@ -109,6 +110,29 @@ function downloadPaperPdf(paperId) {
   });
 }
 
+function downloadPaperPageImage(paperId, pageNumber, quote = '') {
+  return new Promise((resolve, reject) => {
+    const q = quote ? `?quote=${encodeURIComponent(quote)}` : '';
+    wx.downloadFile({
+      url: `${getBaseUrl()}/api/papers/${paperId}/page/${pageNumber}/image${q}`,
+      header: getHeaders(),
+      success(res) {
+        if (res.statusCode === 200 && res.tempFilePath) {
+          const totalPages = Number(
+            (res.header && (res.header['X-PDF-Total-Pages'] || res.header['x-pdf-total-pages'])) || 0
+          );
+          resolve({ tempFilePath: res.tempFilePath, totalPages });
+        } else {
+          reject(new Error(`渲染第 ${pageNumber} 页失败 (${res.statusCode})`));
+        }
+      },
+      fail(err) {
+        reject(new Error(err.errMsg || 'PDF 页面渲染失败'));
+      },
+    });
+  });
+}
+
 module.exports = {
   checkHealth: () => request('/api/health', 'GET'),
   wechatLogin: (payload) => request('/api/auth/wechat-login', 'POST', payload),
@@ -120,6 +144,8 @@ module.exports = {
   createJob: (settings, title) =>
     request('/api/jobs', 'POST', {
       title,
+      provider: settings.provider || 'gemini',
+      customBaseUrl: settings.customBaseUrl || '',
       model: settings.model,
       language: settings.language,
       thinkingLevel: settings.thinkingLevel,
@@ -134,7 +160,15 @@ module.exports = {
   updatePaperSummary: (jobId, paperId, dimKey, summary) =>
     request(`/api/jobs/${jobId}/papers/${paperId}`, 'PATCH', { dimKey, summary }),
   getMarkdown: (jobId) => request(`/api/jobs/${jobId}/export/markdown`, 'GET'),
-  synthesizeJob: (jobId) => request(`/api/jobs/${jobId}/synthesize`, 'POST'),
+  synthesizeJob: (jobId) => {
+    const s = getApp().globalData.settings;
+    return request(`/api/jobs/${jobId}/synthesize`, 'POST', {
+      provider: s.provider || 'gemini',
+      customBaseUrl: s.customBaseUrl || '',
+      model: s.model,
+    });
+  },
   downloadExcel,
   downloadPaperPdf,
+  downloadPaperPageImage,
 };

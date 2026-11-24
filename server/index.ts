@@ -5,7 +5,11 @@ import multer from 'multer';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs';
-import { extractPaperMatrix, synthesizeLiteratureReview } from './geminiExtractor.js';
+import {
+  extractPaperMultiProvider,
+  synthesizeMultiProvider,
+} from './multiModelExtractor.js';
+import { renderPdfPageToPngBuffer } from './pdfRenderer.js';
 import { buildExcelBuffer, buildMarkdownText } from './exportBuilder.js';
 import {
   bindSessionBySyncCode,
@@ -29,7 +33,12 @@ import {
   startJobQueue,
   updatePaperSummaryInJob,
 } from './jobStore.js';
-import type { DimensionConfig, GeminiModelId, OutputLanguage } from '../src/types/matrix.js';
+import type {
+  AnyModelId,
+  DimensionConfig,
+  ModelProvider,
+  OutputLanguage,
+} from '../src/types/matrix.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,14 +52,25 @@ app.use(express.json({ limit: '10mb' }));
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50 MB max per PDF
+    fileSize: 50 * 1024 * 1024,
   },
 });
 
-function resolveApiKey(req: express.Request): string {
-  const headerKey = req.header('x-gemini-api-key')?.trim();
-  const envKey = process.env.GEMINI_API_KEY?.trim();
-  return headerKey || envKey || '';
+function resolveProviderApiKey(req: express.Request, provider: ModelProvider): string {
+  const headerKey =
+    req.header('x-llm-api-key')?.trim() || req.header('x-gemini-api-key')?.trim();
+  if (headerKey) return headerKey;
+
+  if (provider === 'deepseek') return process.env.DEEPSEEK_API_KEY?.trim() || '';
+  if (provider === 'qwen') {
+    return (
+      process.env.DASHSCOPE_API_KEY?.trim() ||
+      process.env.QWEN_API_KEY?.trim() ||
+      ''
+    );
+  }
+  if (provider === 'gemini') return process.env.GEMINI_API_KEY?.trim() || '';
+  return '';
 }
 
 function resolveBearerToken(req: express.Request): string {
@@ -68,7 +88,6 @@ function resolveOwnerId(req: express.Request): string {
   return session?.userId || 'anonymous';
 }
 
-// Optional WeChat msgSecCheck helper
 let cachedWxToken: { token: string; expiresAt: number } | null = null;
 async function checkWeChatTextSafety(content: string): Promise<boolean> {
   const appId = process.env.WECHAT_APPID?.trim();
@@ -113,10 +132,18 @@ async function checkWeChatTextSafety(content: string): Promise<boolean> {
 }
 
 app.get('/api/health', (_req, res) => {
+  const providersConfigured = {
+    gemini: Boolean(process.env.GEMINI_API_KEY?.trim()),
+    deepseek: Boolean(process.env.DEEPSEEK_API_KEY?.trim()),
+    qwen: Boolean(
+      process.env.DASHSCOPE_API_KEY?.trim() || process.env.QWEN_API_KEY?.trim()
+    ),
+  };
   res.json({
     ok: true,
     persistentDb: 'sqlite',
-    hasServerApiKey: Boolean(process.env.GEMINI_API_KEY?.trim()),
+    hasServerApiKey: providersConfigured.gemini,
+    providersConfigured,
     wechatSafetyEnabled: Boolean(
       process.env.WECHAT_APPID?.trim() && process.env.WECHAT_APPSECRET?.trim()
     ),
@@ -195,7 +222,7 @@ app.patch('/api/auth/profile', async (req, res) => {
   res.json({ user: updated });
 });
 
-// ---- Serve Persisted Original PDF for Provenance Viewer & WeChat OpenDocument ----
+// ---- Serve Persisted Original PDF & High-Res Page PNG Preview ----
 app.get('/api/papers/:paperId/pdf', (req, res) => {
   const found = getPaperPdfPath(String(req.params.paperId));
   if (!found) {
@@ -208,14 +235,47 @@ app.get('/api/papers/:paperId/pdf', (req, res) => {
   res.sendFile(found.pdfPath);
 });
 
-// ---- Web Single-PDF Extract Endpoint (Also Persists into SQLite Job!) ----
+app.get('/api/papers/:paperId/page/:pageNumber/image', async (req, res) => {
+  try {
+    const paperId = String(req.params.paperId);
+    const pageNumber = Number(req.params.pageNumber) || 1;
+    const scale = Math.max(1, Math.min(3, Number(req.query.scale) || 2.0));
+    const quote = typeof req.query.quote === 'string' ? req.query.quote : undefined;
+
+    const found = getPaperPdfPath(paperId);
+    if (!found) {
+      res.status(404).json({ error: '未找到该论文的原 PDF 文件' });
+      return;
+    }
+
+    const { pngBuffer, numPages, safePage } = await renderPdfPageToPngBuffer({
+      pdfPath: found.pdfPath,
+      paperId,
+      pageNumber,
+      scale,
+      highlightQuote: quote,
+    });
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('X-PDF-Total-Pages', String(numPages));
+    res.setHeader('X-PDF-Rendered-Page', String(safePage));
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(pngBuffer);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'PDF 页面渲染失败';
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ---- Web Single-PDF Extract Endpoint (Supports Gemini + DeepSeek + Qwen + Custom) ----
 app.post('/api/extract', upload.single('pdf'), async (req, res) => {
   try {
-    const apiKey = resolveApiKey(req);
+    const provider = (req.body.provider || 'gemini') as ModelProvider;
+    const customBaseUrl = typeof req.body.customBaseUrl === 'string' ? req.body.customBaseUrl : '';
+    const apiKey = resolveProviderApiKey(req, provider);
     if (!apiKey) {
       res.status(400).json({
-        error:
-          '缺少 Google AI Studio API Key。请在右上角「API 设置」中输入，或在服务端 .env 中配置 GEMINI_API_KEY。',
+        error: `缺少 ${provider.toUpperCase()} API Key，请在右上角「API 设置」中填写。`,
       });
       return;
     }
@@ -226,7 +286,7 @@ app.post('/api/extract', upload.single('pdf'), async (req, res) => {
     }
 
     const originalName = req.body.fileName || req.file.originalname || 'paper.pdf';
-    const model = (req.body.model || 'gemini-4-hydrogen') as GeminiModelId;
+    const model = (req.body.model || 'gemini-4-hydrogen') as AnyModelId;
     const language = (req.body.language || 'zh') as OutputLanguage;
     const thinkingLevel = (req.body.thinkingLevel || 'low') as
       | 'minimal'
@@ -250,6 +310,8 @@ app.post('/api/extract', upload.single('pdf'), async (req, res) => {
       const created = createJob({
         ownerId,
         title: `桌面端批量提取`,
+        provider,
+        customBaseUrl,
         model,
         language,
         thinkingLevel,
@@ -259,8 +321,10 @@ app.post('/api/extract', upload.single('pdf'), async (req, res) => {
     }
 
     const startedAt = Date.now();
-    const extraction = await extractPaperMatrix({
+    const extraction = await extractPaperMultiProvider({
+      provider,
       apiKey,
+      customBaseUrl,
       pdfBuffer: req.file.buffer,
       fileName: originalName,
       totalPagesHint,
@@ -279,7 +343,7 @@ app.post('/api/extract', upload.single('pdf'), async (req, res) => {
       pageCount: totalPagesHint || extraction.total_pages_detected || 0,
       extraction,
       durationMs,
-      modelUsed: model,
+      modelUsed: `${provider}:${model}`,
     });
 
     res.json({
@@ -287,7 +351,7 @@ app.post('/api/extract', upload.single('pdf'), async (req, res) => {
       paper: savedPaper,
       extraction,
       durationMs,
-      modelUsed: model,
+      modelUsed: `${provider}:${model}`,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'PDF 提取失败';
@@ -298,9 +362,11 @@ app.post('/api/extract', upload.single('pdf'), async (req, res) => {
 
 app.post('/api/synthesize', async (req, res) => {
   try {
-    const apiKey = resolveApiKey(req);
+    const provider = (req.body.provider || 'gemini') as ModelProvider;
+    const customBaseUrl = typeof req.body.customBaseUrl === 'string' ? req.body.customBaseUrl : '';
+    const apiKey = resolveProviderApiKey(req, provider);
     if (!apiKey) {
-      res.status(400).json({ error: '缺少 Google AI Studio API Key。' });
+      res.status(400).json({ error: `缺少 ${provider.toUpperCase()} API Key。` });
       return;
     }
 
@@ -310,8 +376,10 @@ app.post('/api/synthesize', async (req, res) => {
       return;
     }
 
-    const synthesis = await synthesizeLiteratureReview({
+    const synthesis = await synthesizeMultiProvider({
+      provider,
       apiKey,
+      customBaseUrl,
       model,
       language,
       papers,
@@ -325,7 +393,7 @@ app.post('/api/synthesize', async (req, res) => {
   }
 });
 
-// ---- Persistent Jobs & Cloud Library Endpoints (Shared by PC Web & WeChat Mini Program) ----
+// ---- Persistent Jobs & Cloud Library Endpoints ----
 app.get('/api/jobs', (req, res) => {
   const ownerId = resolveOwnerId(req);
   res.json({ jobs: listJobs(ownerId) });
@@ -333,7 +401,9 @@ app.get('/api/jobs', (req, res) => {
 
 app.post('/api/jobs', async (req, res) => {
   try {
-    const apiKey = resolveApiKey(req);
+    const provider = (req.body?.provider || 'gemini') as ModelProvider;
+    const customBaseUrl = String(req.body?.customBaseUrl || '');
+    const apiKey = resolveProviderApiKey(req, provider);
     const ownerId = resolveOwnerId(req);
     const {
       title,
@@ -359,6 +429,8 @@ app.post('/api/jobs', async (req, res) => {
       ownerId,
       title,
       apiKey,
+      provider,
+      customBaseUrl,
       model,
       language,
       thinkingLevel,
@@ -416,7 +488,7 @@ app.post('/api/jobs/:jobId/upload', upload.single('pdf'), async (req, res) => {
     const paper = await addPdfToJob(jobId, fileName, req.file.buffer, pageCountHint);
     const autoStart = req.body.autoStart === 'true' || req.body.autoStart === true;
 
-    const key = resolveApiKey(req);
+    const key = resolveProviderApiKey(req, job.provider);
     if (autoStart && key) {
       startJobQueue(jobId, key);
     }
@@ -437,10 +509,10 @@ app.post('/api/jobs/:jobId/start', (req, res) => {
     res.status(404).json({ error: '任务不存在或已过期' });
     return;
   }
-  const apiKey = resolveApiKey(req);
+  const apiKey = resolveProviderApiKey(req, job.provider);
   if (!apiKey) {
     res.status(400).json({
-      error: '缺少 Google AI Studio API Key，请在设置中填写或配置服务端 GEMINI_API_KEY。',
+      error: `缺少 ${job.provider.toUpperCase()} API Key，请在设置中填写或配置服务端环境变量。`,
     });
     return;
   }
@@ -561,9 +633,12 @@ app.post('/api/jobs/:jobId/synthesize', async (req, res) => {
       res.status(404).json({ error: '任务不存在或已过期' });
       return;
     }
-    const apiKey = resolveApiKey(req);
+    const provider = (req.body?.provider || job.provider || 'gemini') as ModelProvider;
+    const customBaseUrl = String(req.body?.customBaseUrl || job.customBaseUrl || '');
+    const model = (req.body?.model || job.model) as AnyModelId;
+    const apiKey = resolveProviderApiKey(req, provider);
     if (!apiKey) {
-      res.status(400).json({ error: '缺少 Google AI Studio API Key。' });
+      res.status(400).json({ error: `缺少 ${provider.toUpperCase()} API Key。` });
       return;
     }
     const completed = job.papers.filter((p) => p.status === 'done' && p.extraction);
@@ -572,9 +647,11 @@ app.post('/api/jobs/:jobId/synthesize', async (req, res) => {
       return;
     }
 
-    const synthesis = await synthesizeLiteratureReview({
+    const synthesis = await synthesizeMultiProvider({
+      provider,
       apiKey,
-      model: job.model,
+      customBaseUrl,
+      model,
       language: job.language,
       papers: completed.map((p) => {
         const e = p.extraction!;

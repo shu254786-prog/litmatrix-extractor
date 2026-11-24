@@ -231,17 +231,33 @@
     </view>
     <view class="dock-btn dock-md" hover-class="ios-press" bindtap="onCopyMarkdown">
       <text class="dock-ico">📝</text>
-      <text class="dock-txt">Markdown</text>
+      <text class="dock-txt">MD</text>
+    </view>
+    <view class="dock-btn dock-poster" hover-class="ios-press" bindtap="onOpenPoster">
+      <text class="dock-ico">🖼️</text>
+      <text class="dock-txt">海报</text>
     </view>
     <view class="dock-btn dock-ai" hover-class="ios-press" bindtap="onSynthesize" wx:if="{{doneCount >= 2}}">
       <text class="dock-ico">✨</text>
-      <text class="dock-txt">AI 综述</text>
+      <text class="dock-txt">综述</text>
     </view>
     <button class="dock-btn dock-share" open-type="share" hover-class="ios-press">
       <text class="dock-ico">↗️</text>
       <text class="dock-txt">分享</text>
     </button>
   </view>
+
+  <!-- Matrix Share Poster Sheet -->
+  <poster-sheet
+    visible="{{showPoster}}"
+    papers="{{completedPapers}}"
+    modelLabel="{{settings.model}}"
+    userName="{{user ? user.nickName : '科研研究员'}}"
+    bind:close="onClosePoster"
+  />
+
+  <!-- WeChat Official Privacy Compliance Popup -->
+  <privacy-popup />
 
   <!-- Spring Bottom Sheet for AI Synthesis -->
   <view class="sheet-mask" wx:if="{{showSynthesis}}" bindtap="closeSynthesis">

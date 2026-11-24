@@ -1,6 +1,8 @@
 {
   "usingComponents": {
-    "ios-navbar": "/components/ios-navbar/ios-navbar"
+    "ios-navbar": "/components/ios-navbar/ios-navbar",
+    "privacy-popup": "/components/privacy-popup/privacy-popup",
+    "poster-sheet": "/components/poster-sheet/poster-sheet"
   },
   "enablePullDownRefresh": true
 }

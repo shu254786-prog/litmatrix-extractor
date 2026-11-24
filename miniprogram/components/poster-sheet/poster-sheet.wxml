@@ -1,0 +1,40 @@
+<view class="poster-mask" wx:if="{{visible}}" bindtap="onClose">
+  <view class="poster-sheet ios-sheet-up" catchtap="noop">
+    <view class="sheet-grabber"></view>
+    <view class="poster-head">
+      <text class="poster-title">文献综述矩阵分享海报</text>
+      <text class="poster-close" bindtap="onClose">完成</text>
+    </view>
+
+    <!-- Hidden high-DPI 2D canvas used to render crisp PNG -->
+    <canvas
+      type="2d"
+      id="matrixPosterCanvas"
+      class="hidden-canvas"
+      style="width: 375px; height: 640px;"
+    ></canvas>
+
+    <view class="preview-wrap">
+      <view wx:if="{{generating}}" class="poster-loading">
+        <view class="ios-skeleton sk-poster"></view>
+        <text class="loading-txt">正在排版高清科研海报...</text>
+      </view>
+      <image
+        wx:elif="{{posterPath}}"
+        src="{{posterPath}}"
+        mode="aspectFit"
+        class="poster-img"
+        bindtap="onPreviewFull"
+      />
+    </view>
+
+    <view class="poster-actions" wx:if="{{posterPath}}">
+      <button class="ios-btn-tinted act-btn" hover-class="ios-press" bindtap="onShareFriend">
+        ↗️ 转发给微信好友
+      </button>
+      <button class="ios-btn-primary act-btn" hover-class="ios-press" bindtap="onSaveAlbum">
+        💾 保存高清海报
+      </button>
+    </view>
+  </view>
+</view>

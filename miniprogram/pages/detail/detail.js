@@ -14,6 +14,7 @@ Page({
     paper: null,
     sections: [],
     editing: null,
+    pageViewer: null,
   },
 
   onLoad(options) {
@@ -76,6 +77,77 @@ Page({
         wx.showToast({ title: `已复制 P.${page} 摘录`, icon: 'success' });
       },
     });
+  },
+
+  onTapCitation(e) {
+    const { quote, section, page } = e.currentTarget.dataset;
+    if (!this.data.paper || !this.data.paper.hasPdf) {
+      this.onCopyQuote(e);
+      return;
+    }
+    this.openPageViewer(Number(page) || 1, quote || '', section || '');
+  },
+
+  async openPageViewer(page, quote = '', section = '') {
+    const paper = this.data.paper;
+    if (!paper) return;
+    getApp().haptic('light');
+
+    const totalPages =
+      paper.pageCount ||
+      (paper.extraction && paper.extraction.total_pages_detected) ||
+      1;
+
+    this.setData({
+      pageViewer: {
+        page,
+        totalPages,
+        quote,
+        section,
+        loading: true,
+        imagePath: '',
+      },
+    });
+
+    try {
+      const res = await api.downloadPaperPageImage(paper.id, page, quote);
+      if (!this.data.pageViewer) return;
+      this.setData({
+        'pageViewer.loading': false,
+        'pageViewer.imagePath': res.tempFilePath,
+        'pageViewer.totalPages': res.totalPages || totalPages,
+      });
+    } catch (err) {
+      if (!this.data.pageViewer) return;
+      this.setData({ 'pageViewer.loading': false });
+      wx.showToast({ title: err.message || '页面渲染失败', icon: 'none' });
+    }
+  },
+
+  onPrevPage() {
+    const pv = this.data.pageViewer;
+    if (!pv || pv.page <= 1) return;
+    this.openPageViewer(pv.page - 1, '', '');
+  },
+
+  onNextPage() {
+    const pv = this.data.pageViewer;
+    if (!pv || pv.page >= pv.totalPages) return;
+    this.openPageViewer(pv.page + 1, '', '');
+  },
+
+  onZoomPageImage() {
+    const pv = this.data.pageViewer;
+    if (!pv || !pv.imagePath) return;
+    wx.previewImage({
+      urls: [pv.imagePath],
+      current: pv.imagePath,
+    });
+  },
+
+  closePageViewer() {
+    getApp().haptic('light');
+    this.setData({ pageViewer: null });
   },
 
   openEditor(e) {

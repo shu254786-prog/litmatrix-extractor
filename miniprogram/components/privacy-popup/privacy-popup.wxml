@@ -1,0 +1,30 @@
+<view class="privacy-mask" wx:if="{{visible}}">
+  <view class="privacy-dialog ios-enter">
+    <view class="privacy-badge">🛡️</view>
+    <text class="privacy-title">LitMatrix 隐私保护提示</text>
+    <text class="privacy-desc">
+      在您使用微信聊天选文件、复制综述文本或保存矩阵海报前，请先阅读并同意
+      <text class="privacy-link" bindtap="onOpenContract">{{contractName}}</text>
+      。我们仅在您主动触发对应操作时处理必要信息。
+    </text>
+
+    <view class="privacy-actions">
+      <button
+        class="priv-btn priv-disagree"
+        hover-class="ios-press"
+        bindtap="onDisagree"
+      >
+        暂不同意
+      </button>
+      <button
+        id="agree-privacy-btn"
+        class="priv-btn priv-agree"
+        hover-class="ios-press"
+        open-type="agreePrivacyAuthorization"
+        bindagreeprivacyauthorization="onAgree"
+      >
+        同意并继续
+      </button>
+    </view>
+  </view>
+</view>

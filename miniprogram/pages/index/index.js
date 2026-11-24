@@ -17,6 +17,7 @@ Page({
     viewMode: 'cards',
     showSynthesis: false,
     synthesisText: '',
+    showPoster: false,
   },
 
   pollTimer: null,
@@ -336,6 +337,15 @@ Page({
   closeSynthesis() {
     getApp().haptic('light');
     this.setData({ showSynthesis: false });
+  },
+
+  onOpenPoster() {
+    getApp().haptic('light');
+    this.setData({ showPoster: true });
+  },
+
+  onClosePoster() {
+    this.setData({ showPoster: false });
   },
 
   noop() {},

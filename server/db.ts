@@ -42,6 +42,8 @@ db.exec(`
     title TEXT NOT NULL,
     status TEXT NOT NULL,
     model TEXT NOT NULL,
+    provider TEXT NOT NULL DEFAULT 'gemini',
+    custom_base_url TEXT NOT NULL DEFAULT '',
     language TEXT NOT NULL,
     thinking_level TEXT NOT NULL,
     concurrency INTEGER NOT NULL DEFAULT 3,
@@ -72,6 +74,15 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_papers_job ON papers(job_id, sort_order ASC);
 `);
+
+// Safely migrate existing SQLite DBs without provider columns
+const jobCols = db.prepare('PRAGMA table_info(jobs)').all() as Array<{ name: string }>;
+if (!jobCols.some((c) => c.name === 'provider')) {
+  db.exec(`ALTER TABLE jobs ADD COLUMN provider TEXT NOT NULL DEFAULT 'gemini'`);
+}
+if (!jobCols.some((c) => c.name === 'custom_base_url')) {
+  db.exec(`ALTER TABLE jobs ADD COLUMN custom_base_url TEXT NOT NULL DEFAULT ''`);
+}
 
 // Recover any jobs/papers interrupted by a previous server shutdown
 db.exec(`

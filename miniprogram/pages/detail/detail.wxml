@@ -61,17 +61,82 @@
           wx:key="index"
           class="cite-card"
           hover-class="ios-press"
-          bindtap="onCopyQuote"
+          bindtap="onTapCitation"
           data-quote="{{cit.quote}}"
+          data-section="{{cit.section}}"
           data-page="{{cit.pdf_page}}"
         >
           <view class="cite-top">
             <text class="ios-pill ios-pill-cite">PDF P.{{cit.pdf_page}}</text>
             <text class="cite-sec">{{cit.section || '正文'}}</text>
-            <text class="copy-hint">轻点复制</text>
+            <text class="copy-hint">{{paper.hasPdf ? '查看原页高亮图 ›' : '轻点复制摘录'}}</text>
           </view>
           <text class="cite-quote">“{{cit.quote}}”</text>
+          <view class="cite-sub-actions" wx:if="{{paper.hasPdf}}" catchtap="onCopyQuote" data-quote="{{cit.quote}}" data-page="{{cit.pdf_page}}">
+            <text class="copy-pill">📋 复制原文</text>
+          </view>
         </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- HD PDF Page Provenance Lightbox -->
+  <view class="sheet-mask" wx:if="{{pageViewer}}" bindtap="closePageViewer">
+    <view class="viewer-sheet ios-sheet-up" catchtap="noop">
+      <view class="sheet-grabber"></view>
+      <view class="sheet-head">
+        <view class="viewer-title-row">
+          <text class="ios-pill ios-pill-cite">第 {{pageViewer.page}} 页</text>
+          <text class="sheet-title">PDF 原页高清溯源</text>
+        </view>
+        <text class="viewer-done" bindtap="closePageViewer">完成</text>
+      </view>
+
+      <view class="viewer-quote-banner" wx:if="{{pageViewer.quote}}">
+        <text class="vq-sec">{{pageViewer.section || '原文摘录'}}：</text>
+        <text class="vq-txt">“{{pageViewer.quote}}”</text>
+      </view>
+
+      <scroll-view scroll-y="true" class="viewer-scroll">
+        <view wx:if="{{pageViewer.loading}}" class="viewer-loading">
+          <view class="ios-skeleton sk-page"></view>
+          <text class="vl-txt">正在渲染第 {{pageViewer.page}} 页高清图并高亮原文...</text>
+        </view>
+        <image
+          wx:elif="{{pageViewer.imagePath}}"
+          src="{{pageViewer.imagePath}}"
+          mode="widthFix"
+          class="viewer-img"
+          bindtap="onZoomPageImage"
+        />
+      </scroll-view>
+
+      <view class="viewer-toolbar">
+        <button
+          class="ios-btn-tinted nav-pg-btn"
+          hover-class="ios-press"
+          disabled="{{pageViewer.page <= 1 || pageViewer.loading}}"
+          bindtap="onPrevPage"
+        >
+          ‹ 上一页
+        </button>
+        <text class="pg-counter">{{pageViewer.page}} / {{pageViewer.totalPages}}</text>
+        <button
+          class="ios-btn-tinted nav-pg-btn"
+          hover-class="ios-press"
+          disabled="{{pageViewer.page >= pageViewer.totalPages || pageViewer.loading}}"
+          bindtap="onNextPage"
+        >
+          下一页 ›
+        </button>
+        <button
+          class="ios-btn-primary zoom-btn"
+          hover-class="ios-press"
+          wx:if="{{pageViewer.imagePath}}"
+          bindtap="onZoomPageImage"
+        >
+          🔍 放大
+        </button>
       </view>
     </view>
   </view>

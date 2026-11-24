@@ -30,7 +30,9 @@ const SETTINGS_STORAGE_KEY = 'litmatrix_settings_v1';
 const WEB_TOKEN_STORAGE_KEY = 'litmatrix_web_token_v1';
 
 const DEFAULT_SETTINGS: ExtractionSettings = {
+  provider: 'gemini',
   apiKey: '',
+  customBaseUrl: '',
   model: 'gemini-4-hydrogen',
   language: 'zh',
   concurrency: 3,
@@ -66,7 +68,11 @@ export function App() {
   const [cloudLoading, setCloudLoading] = useState(false);
 
   const [papers, setPapers] = useState<PaperRow[]>([]);
-  const [hasServerApiKey, setHasServerApiKey] = useState(false);
+  const [providersConfigured, setProvidersConfigured] = useState<{
+    gemini: boolean;
+    deepseek: boolean;
+    qwen: boolean;
+  }>({ gemini: false, deepseek: false, qwen: false });
   const [isRunning, setIsRunning] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [markdownOpen, setMarkdownOpen] = useState(false);
@@ -87,6 +93,7 @@ export function App() {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
       if (settings.apiKey.trim()) {
+        headers['x-llm-api-key'] = settings.apiKey.trim();
         headers['x-gemini-api-key'] = settings.apiKey.trim();
       }
       return headers;
@@ -125,7 +132,17 @@ export function App() {
   useEffect(() => {
     fetch('/api/health')
       .then((r) => r.json())
-      .then((d) => setHasServerApiKey(Boolean(d?.hasServerApiKey)))
+      .then((d) => {
+        if (d?.providersConfigured) {
+          setProvidersConfigured(d.providersConfigured);
+        } else {
+          setProvidersConfigured({
+            gemini: Boolean(d?.hasServerApiKey),
+            deepseek: false,
+            qwen: false,
+          });
+        }
+      })
       .catch(() => {});
 
     (async () => {
@@ -167,7 +184,15 @@ export function App() {
     [settings.customDimensions]
   );
 
-  const hasApiKey = Boolean(settings.apiKey.trim() || hasServerApiKey);
+  const hasEnvKeyForCurrentProvider =
+    settings.provider === 'gemini'
+      ? providersConfigured.gemini
+      : settings.provider === 'deepseek'
+      ? providersConfigured.deepseek
+      : settings.provider === 'qwen'
+      ? providersConfigured.qwen
+      : false;
+  const hasApiKey = Boolean(settings.apiKey.trim() || hasEnvKeyForCurrentProvider);
 
   const handleFilesAdded = useCallback(
     async (files: File[]) => {
@@ -219,6 +244,8 @@ export function App() {
             'zh-CN',
             { hour: '2-digit', minute: '2-digit', hour12: false }
           )}`,
+          provider: settings.provider,
+          customBaseUrl: settings.customBaseUrl,
           model: settings.model,
           language: settings.language,
           thinkingLevel: settings.thinkingLevel,
@@ -278,6 +305,8 @@ export function App() {
         formData.append('jobId', jobId);
         formData.append('existingPaperId', paper.id);
         formData.append('fileName', file.name);
+        formData.append('provider', settings.provider);
+        formData.append('customBaseUrl', settings.customBaseUrl || '');
         formData.append('model', settings.model);
         formData.append('language', settings.language);
         formData.append('thinkingLevel', settings.thinkingLevel);
@@ -555,6 +584,8 @@ export function App() {
         method: 'POST',
         headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
+          provider: settings.provider,
+          customBaseUrl: settings.customBaseUrl,
           model: settings.model,
           language: settings.language,
           papers: completed.map((p) => {
@@ -633,7 +664,7 @@ export function App() {
                   LitMatrix · 文献综述矩阵提取器
                 </h1>
                 <span className="rounded-full bg-indigo-50 px-2 py-0.5 font-mono text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-200/70">
-                  {settings.model}
+                  {settings.provider} · {settings.model}
                 </span>
                 {activeJobId && (
                   <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200/80">
@@ -707,12 +738,12 @@ export function App() {
               {hasApiKey ? (
                 <>
                   <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                  AI Studio 已就绪
+                  {settings.provider.toUpperCase()} 已就绪
                 </>
               ) : (
                 <>
                   <KeyRound className="h-3.5 w-3.5 text-amber-600" />
-                  填入 AI Studio Key
+                  配置模型 Key
                 </>
               )}
               <Settings className="ml-0.5 h-3.5 w-3.5 opacity-70" />
@@ -782,7 +813,7 @@ export function App() {
       <SettingsModal
         open={settingsOpen}
         settings={settings}
-        hasServerApiKey={hasServerApiKey}
+        providersConfigured={providersConfigured}
         onSave={(next) => setSettings(next)}
         onClose={() => setSettingsOpen(false)}
       />

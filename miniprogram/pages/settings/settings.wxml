@@ -1,9 +1,69 @@
 <view class="settings-page">
-  <ios-navbar title="模型与 API 设置" showBack="{{true}}" />
+  <ios-navbar title="多模型与 API 设置" showBack="{{true}}" />
 
   <view class="settings-body">
-    <view class="ios-section-title">服务端与密钥</view>
+    <view class="ios-section-title">模型服务商（支持国内直连与 Gemini）</view>
     <view class="ios-group ios-enter">
+      <picker mode="selector" range="{{providerLabels}}" value="{{providerIndex}}" bindchange="onProviderChange">
+        <view class="ios-cell ios-cell-border" hover-class="ios-press">
+          <text class="cell-lbl">模型服务商</text>
+          <view class="cell-val-row">
+            <text class="cell-val">{{providerLabels[providerIndex]}}</text>
+            <text class="chevron">›</text>
+          </view>
+        </view>
+      </picker>
+
+      <picker
+        wx:if="{{modelLabels.length > 0}}"
+        mode="selector"
+        range="{{modelLabels}}"
+        value="{{modelIndex}}"
+        bindchange="onModelChange"
+      >
+        <view class="ios-cell ios-cell-border" hover-class="ios-press">
+          <text class="cell-lbl">提取模型</text>
+          <view class="cell-val-row">
+            <text class="cell-val">{{modelLabels[modelIndex]}}</text>
+            <text class="chevron">›</text>
+          </view>
+        </view>
+      </picker>
+
+      <view wx:else class="ios-cell ios-cell-border field-cell">
+        <text class="field-lbl">自定义模型 ID</text>
+        <input
+          class="field-input"
+          value="{{customModel}}"
+          bindinput="onCustomModelInput"
+          placeholder="例如 gpt-4o-mini"
+        />
+      </view>
+
+      <view wx:if="{{providerId === 'custom'}}" class="ios-cell ios-cell-border field-cell">
+        <text class="field-lbl">Base URL</text>
+        <input
+          class="field-input"
+          value="{{customBaseUrl}}"
+          bindinput="onCustomBaseInput"
+          placeholder="https://api.siliconflow.cn/v1"
+        />
+      </view>
+
+      <view class="ios-cell field-cell">
+        <text class="field-lbl">API Key</text>
+        <input
+          class="field-input"
+          password="{{true}}"
+          value="{{apiKey}}"
+          bindinput="onInputKey"
+          placeholder="可选，留空则用服务端环境变量"
+        />
+      </view>
+    </view>
+
+    <view class="ios-section-title">服务端与并发策略</view>
+    <view class="ios-group ios-enter ios-enter-delay-1">
       <view class="ios-cell ios-cell-border field-cell">
         <text class="field-lbl">后端服务地址</text>
         <input
@@ -13,29 +73,6 @@
           placeholder="https://api.your-domain.com"
         />
       </view>
-      <view class="ios-cell field-cell">
-        <text class="field-lbl">AI Studio Key</text>
-        <input
-          class="field-input"
-          password="{{true}}"
-          value="{{apiKey}}"
-          bindinput="onInputKey"
-          placeholder="可选，留空则用服务端 Key"
-        />
-      </view>
-    </view>
-
-    <view class="ios-section-title">Gemini 模型与推理参数</view>
-    <view class="ios-group ios-enter ios-enter-delay-1">
-      <picker mode="selector" range="{{modelLabels}}" value="{{modelIndex}}" bindchange="onModelChange">
-        <view class="ios-cell ios-cell-border" hover-class="ios-press">
-          <text class="cell-lbl">提取模型</text>
-          <view class="cell-val-row">
-            <text class="cell-val">{{modelLabels[modelIndex]}}</text>
-            <text class="chevron">›</text>
-          </view>
-        </view>
-      </picker>
 
       <picker mode="selector" range="{{langLabels}}" value="{{langIndex}}" bindchange="onLangChange">
         <view class="ios-cell ios-cell-border" hover-class="ios-press">

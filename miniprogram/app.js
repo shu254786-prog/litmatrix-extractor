@@ -1,9 +1,11 @@
-const SETTINGS_KEY = 'litmatrix_mp_settings_v2';
+const SETTINGS_KEY = 'litmatrix_mp_settings_v3';
 const AUTH_KEY = 'litmatrix_mp_auth_v2';
 
 const DEFAULT_SETTINGS = {
   serverBaseUrl: 'http://localhost:3001',
+  provider: 'gemini',
   apiKey: '',
+  customBaseUrl: '',
   model: 'gemini-4-hydrogen',
   language: 'zh',
   thinkingLevel: 'low',

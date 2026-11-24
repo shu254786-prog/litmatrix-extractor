@@ -2,10 +2,11 @@ import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
 import { db, PDF_DIR } from './db.js';
-import { extractPaperMatrix } from './geminiExtractor.js';
+import { extractPaperMultiProvider } from './multiModelExtractor.js';
 import type {
+  AnyModelId,
   DimensionConfig,
-  GeminiModelId,
+  ModelProvider,
   OutputLanguage,
   PaperExtractionResult,
   PaperRow,
@@ -18,7 +19,9 @@ export interface SerializedJob {
   ownerId: string;
   title: string;
   status: 'idle' | 'running' | 'completed';
-  model: GeminiModelId;
+  provider: ModelProvider;
+  customBaseUrl: string;
+  model: AnyModelId;
   language: OutputLanguage;
   thinkingLevel: 'minimal' | 'low' | 'medium' | 'high';
   concurrency: number;
@@ -29,7 +32,6 @@ export interface SerializedJob {
   papers: PaperRow[];
 }
 
-// Track active running job IDs + runtime API keys in memory
 const runningJobs = new Set<string>();
 const jobRuntimeKeys = new Map<string, string>();
 
@@ -83,7 +85,9 @@ function mapJobRow(jobRow: Record<string, unknown>): SerializedJob {
     ownerId: String(jobRow.owner_id),
     title: String(jobRow.title),
     status: jobRow.status as SerializedJob['status'],
-    model: jobRow.model as GeminiModelId,
+    provider: (jobRow.provider || 'gemini') as ModelProvider,
+    customBaseUrl: String(jobRow.custom_base_url || ''),
+    model: jobRow.model as AnyModelId,
     language: jobRow.language as OutputLanguage,
     thinkingLevel: (jobRow.thinking_level || 'low') as SerializedJob['thinkingLevel'],
     concurrency: Number(jobRow.concurrency || 3),
@@ -99,7 +103,9 @@ export function createJob(params: {
   ownerId?: string;
   title?: string;
   apiKey?: string;
-  model?: GeminiModelId;
+  provider?: ModelProvider;
+  customBaseUrl?: string;
+  model?: AnyModelId;
   language?: OutputLanguage;
   thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high';
   concurrency?: number;
@@ -121,13 +127,16 @@ export function createJob(params: {
 
   db.prepare(
     `INSERT INTO jobs (
-      id, owner_id, title, status, model, language, thinking_level, concurrency,
-      dimensions_json, custom_dimensions_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, ?)`
+      id, owner_id, title, status, provider, custom_base_url, model, language,
+      thinking_level, concurrency, dimensions_json, custom_dimensions_json,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, 'idle', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     params.ownerId || 'anonymous',
     title,
+    params.provider || 'gemini',
+    params.customBaseUrl || '',
     params.model || 'gemini-4-hydrogen',
     params.language || 'zh',
     params.thinkingLevel || 'low',
@@ -151,9 +160,10 @@ export function createDemoJob(ownerId = 'anonymous'): SerializedJob {
 
   db.prepare(
     `INSERT INTO jobs (
-      id, owner_id, title, status, model, language, thinking_level, concurrency,
-      dimensions_json, custom_dimensions_json, created_at, updated_at
-    ) VALUES (?, ?, ?, 'completed', 'gemini-4-hydrogen', 'zh', 'low', 3, ?, '[]', ?, ?)`
+      id, owner_id, title, status, provider, custom_base_url, model, language,
+      thinking_level, concurrency, dimensions_json, custom_dimensions_json,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, 'completed', 'gemini', '', 'gemini-4-hydrogen', 'zh', 'low', 3, ?, '[]', ?, ?)`
   ).run(
     id,
     ownerId,
@@ -428,6 +438,19 @@ export function requeueFailedPapers(jobId: string) {
   ).run(jobId);
 }
 
+function getEnvKeyForProvider(provider: ModelProvider): string {
+  if (provider === 'deepseek') return process.env.DEEPSEEK_API_KEY?.trim() || '';
+  if (provider === 'qwen') {
+    return (
+      process.env.DASHSCOPE_API_KEY?.trim() ||
+      process.env.QWEN_API_KEY?.trim() ||
+      ''
+    );
+  }
+  if (provider === 'gemini') return process.env.GEMINI_API_KEY?.trim() || '';
+  return '';
+}
+
 export function startJobQueue(jobId: string, apiKeyOverride?: string) {
   if (apiKeyOverride) {
     jobRuntimeKeys.set(jobId, apiKeyOverride);
@@ -437,7 +460,8 @@ export function startJobQueue(jobId: string, apiKeyOverride?: string) {
   const job = getJob(jobId);
   if (!job) return;
 
-  const apiKey = apiKeyOverride || jobRuntimeKeys.get(jobId) || process.env.GEMINI_API_KEY?.trim() || '';
+  const apiKey =
+    apiKeyOverride || jobRuntimeKeys.get(jobId) || getEnvKeyForProvider(job.provider);
   if (!apiKey) return;
 
   const queuedRows = db
@@ -486,8 +510,10 @@ export function startJobQueue(jobId: string, apiKeyOverride?: string) {
       const started = Date.now();
       try {
         const pdfBuffer = await fsp.readFile(pdfPath);
-        const extraction = await extractPaperMatrix({
+        const extraction = await extractPaperMultiProvider({
+          provider: job.provider,
           apiKey,
+          customBaseUrl: job.customBaseUrl,
           pdfBuffer,
           fileName: String(pRow.file_name),
           totalPagesHint: Number(pRow.page_count) || undefined,
