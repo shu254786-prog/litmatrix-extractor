@@ -16,10 +16,45 @@
       <view class="user-info">
         <text class="user-name">{{user ? user.nickName : '点击登录微信账号'}}</text>
         <text class="user-sub">
-          {{user ? (user.isGuest ? '当前为访客体验模式 · 点击绑定微信' : '微信已登录 · 云端工作区同步中') : '登录后同步文献历史与个人配置'}}
+          {{user ? (user.isGuest ? '当前为访客体验模式 · 点击绑定微信' : '微信已登录 · SQLite 云端同步中') : '登录后解锁电脑与手机文献库实时互通'}}
         </text>
       </view>
       <text class="chevron">›</text>
+    </view>
+
+    <!-- Apple Handoff PC <-> WeChat Sync Card -->
+    <view class="ios-card handoff-card ios-enter ios-enter-delay-1">
+      <view class="handoff-top">
+        <view>
+          <text class="handoff-title">💻 电脑网页端跨端互通 (Handoff)</text>
+          <text class="handoff-desc">电脑拖入 20 篇 PDF，手机微信实时同步查看与转发</text>
+        </view>
+      </view>
+
+      <view class="code-display" wx:if="{{user && user.syncCode}}" bindtap="onCopySyncCode">
+        <text class="code-lbl">本机互通码</text>
+        <text class="code-val">{{user.syncCode}}</text>
+        <text class="code-copy">点击复制</text>
+      </view>
+
+      <view class="pair-row">
+        <input
+          type="number"
+          maxlength="6"
+          class="pair-input"
+          value="{{inputSyncCode}}"
+          bindinput="onInputSyncCode"
+          placeholder="输入电脑右上角的 6 位互通码"
+        />
+        <button
+          class="ios-btn-primary pair-btn"
+          hover-class="ios-press"
+          bindtap="onBindSyncCode"
+          disabled="{{pairing}}"
+        >
+          {{pairing ? '连接中' : '立即互通'}}
+        </button>
+      </view>
     </view>
 
     <!-- Settings Group 1: AI Engine -->
@@ -41,7 +76,7 @@
           <text class="cell-title">后端服务连通性检测</text>
         </view>
         <view class="cell-right">
-          <text class="cell-val">{{serverOnline ? '在线' : '检测'}}</text>
+          <text class="cell-val">{{serverOnline ? 'SQLite 在线' : '检测'}}</text>
           <text class="chevron">›</text>
         </view>
       </view>

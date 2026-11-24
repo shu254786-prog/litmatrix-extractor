@@ -90,9 +90,30 @@ function downloadExcel(jobId) {
   });
 }
 
+function downloadPaperPdf(paperId) {
+  return new Promise((resolve, reject) => {
+    wx.downloadFile({
+      url: `${getBaseUrl()}/api/papers/${paperId}/pdf`,
+      header: getHeaders(),
+      success(res) {
+        if (res.statusCode === 200 && res.tempFilePath) {
+          resolve(res.tempFilePath);
+        } else {
+          reject(new Error(`获取原 PDF 失败 (${res.statusCode})`));
+        }
+      },
+      fail(err) {
+        reject(new Error(err.errMsg || '获取原 PDF 失败'));
+      },
+    });
+  });
+}
+
 module.exports = {
   checkHealth: () => request('/api/health', 'GET'),
   wechatLogin: (payload) => request('/api/auth/wechat-login', 'POST', payload),
+  pairSyncCode: (syncCode) => request('/api/auth/pair', 'POST', { syncCode }),
+  getMe: () => request('/api/auth/me', 'GET'),
   updateProfile: (payload) => request('/api/auth/profile', 'PATCH', payload),
   listJobs: () => request('/api/jobs', 'GET'),
   deleteJob: (jobId) => request(`/api/jobs/${jobId}`, 'DELETE'),
@@ -115,4 +136,5 @@ module.exports = {
   getMarkdown: (jobId) => request(`/api/jobs/${jobId}/export/markdown`, 'GET'),
   synthesizeJob: (jobId) => request(`/api/jobs/${jobId}/synthesize`, 'POST'),
   downloadExcel,
+  downloadPaperPdf,
 };

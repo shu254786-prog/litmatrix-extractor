@@ -6,6 +6,8 @@ import {
   CheckCircle2,
   Download,
   Upload,
+  Smartphone,
+  Database,
 } from 'lucide-react';
 import {
   CORE_DIMENSIONS,
@@ -22,9 +24,10 @@ import { ProvenanceDrawer } from './components/ProvenanceDrawer';
 import { SettingsModal } from './components/SettingsModal';
 import { MarkdownPreviewModal } from './components/MarkdownPreviewModal';
 import { SynthesisModal } from './components/SynthesisModal';
+import { CloudSyncDrawer, type CloudJobSummary } from './components/CloudSyncDrawer';
 
 const SETTINGS_STORAGE_KEY = 'litmatrix_settings_v1';
-const PAPERS_STORAGE_KEY = 'litmatrix_papers_v1';
+const WEB_TOKEN_STORAGE_KEY = 'litmatrix_web_token_v1';
 
 const DEFAULT_SETTINGS: ExtractionSettings = {
   apiKey: '',
@@ -41,27 +44,28 @@ export function App() {
       const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
       if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
     } catch {
-      // ignore storage errors
+      // ignore
     }
     return DEFAULT_SETTINGS;
   });
 
-  const [papers, setPapers] = useState<PaperRow[]>(() => {
+  const [authToken, setAuthToken] = useState<string>(() => {
     try {
-      const raw = localStorage.getItem(PAPERS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as PaperRow[];
-        // Reset interrupted extracting rows to queued on reload
-        return parsed.map((p) =>
-          p.status === 'extracting' ? { ...p, status: 'queued' } : p
-        );
-      }
+      return localStorage.getItem(WEB_TOKEN_STORAGE_KEY) || '';
     } catch {
-      // ignore
+      return '';
     }
-    return [];
   });
+  const [syncCode, setSyncCode] = useState('');
+  const [userName, setUserName] = useState('桌面工作台');
 
+  const [activeJobId, setActiveJobId] = useState('');
+  const [activeJobTitle, setActiveJobTitle] = useState('当前工作台');
+  const [cloudJobs, setCloudJobs] = useState<CloudJobSummary[]>([]);
+  const [cloudDrawerOpen, setCloudDrawerOpen] = useState(false);
+  const [cloudLoading, setCloudLoading] = useState(false);
+
+  const [papers, setPapers] = useState<PaperRow[]>([]);
   const [hasServerApiKey, setHasServerApiKey] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -73,15 +77,81 @@ export function App() {
   const [synthesisError, setSynthesisError] = useState<string | null>(null);
   const [synthesisText, setSynthesisText] = useState('');
 
-  // Store local File objects in memory for PDF rendering + extraction
   const fileMapRef = useRef<Map<string, File>>(new Map());
   const importJsonRef = useRef<HTMLInputElement | null>(null);
 
+  const getAuthHeaders = useCallback(
+    (extra: Record<string, string> = {}) => {
+      const headers: Record<string, string> = { ...extra };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+      if (settings.apiKey.trim()) {
+        headers['x-gemini-api-key'] = settings.apiKey.trim();
+      }
+      return headers;
+    },
+    [authToken, settings.apiKey]
+  );
+
+  const fetchCloudJobs = useCallback(
+    async (tokenOverride?: string, autoSelectFirst = false) => {
+      setCloudLoading(true);
+      try {
+        const tok = tokenOverride ?? authToken;
+        const headers: Record<string, string> = {};
+        if (tok) headers['Authorization'] = `Bearer ${tok}`;
+        const resp = await fetch('/api/jobs', { headers });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const list = (data.jobs || []) as CloudJobSummary[];
+        setCloudJobs(list);
+
+        if (autoSelectFirst && list.length > 0) {
+          setActiveJobId(list[0].id);
+          setActiveJobTitle(list[0].title);
+          setPapers(list[0].papers || []);
+        }
+      } catch {
+        // ignore offline errors
+      } finally {
+        setCloudLoading(false);
+      }
+    },
+    [authToken]
+  );
+
+  // Initialize web session + check health + load persisted SQLite batches
   useEffect(() => {
     fetch('/api/health')
       .then((r) => r.json())
       .then((d) => setHasServerApiKey(Boolean(d?.hasServerApiKey)))
       .catch(() => {});
+
+    (async () => {
+      try {
+        const storedToken = localStorage.getItem(WEB_TOKEN_STORAGE_KEY) || '';
+        const resp = await fetch('/api/auth/web-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: storedToken }),
+        });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.token) {
+          setAuthToken(data.token);
+          localStorage.setItem(WEB_TOKEN_STORAGE_KEY, data.token);
+        }
+        if (data.user) {
+          setSyncCode(data.user.syncCode || '');
+          setUserName(data.user.nickName || '桌面工作台');
+        }
+        await fetchCloudJobs(data.token, true);
+      } catch {
+        // ignore
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -92,16 +162,6 @@ export function App() {
     }
   }, [settings]);
 
-  useEffect(() => {
-    try {
-      // Only persist completed / demo rows (queued local files without File blob cannot be extracted after refresh)
-      const persistable = papers.filter((p) => p.status === 'done');
-      localStorage.setItem(PAPERS_STORAGE_KEY, JSON.stringify(persistable));
-    } catch {
-      // ignore
-    }
-  }, [papers]);
-
   const allDimensions = useMemo(
     () => [...CORE_DIMENSIONS, ...settings.customDimensions],
     [settings.customDimensions]
@@ -109,41 +169,97 @@ export function App() {
 
   const hasApiKey = Boolean(settings.apiKey.trim() || hasServerApiKey);
 
-  const handleFilesAdded = useCallback(async (files: File[]) => {
-    const newRows: PaperRow[] = [];
+  const handleFilesAdded = useCallback(
+    async (files: File[]) => {
+      const newRows: PaperRow[] = [];
 
-    for (const file of files) {
-      const duplicate = papers.some(
-        (p) => p.fileName === file.name && p.fileSize === file.size
-      );
-      if (duplicate) continue;
+      for (const file of files) {
+        const duplicate = papers.some(
+          (p) => p.fileName === file.name && p.fileSize === file.size
+        );
+        if (duplicate) continue;
 
-      const id = `paper_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      fileMapRef.current.set(id, file);
-      const pageCount = await getPdfPageCount(file);
+        const id = `paper_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        fileMapRef.current.set(id, file);
+        const pageCount = await getPdfPageCount(file);
 
-      newRows.push({
-        id,
-        fileName: file.name,
-        fileSize: file.size,
-        pageCount,
-        status: 'queued',
+        newRows.push({
+          id,
+          fileName: file.name,
+          fileSize: file.size,
+          pageCount,
+          status: 'queued',
+        });
+      }
+
+      if (newRows.length > 0) {
+        // If current batch is a demo batch, start a clean active workspace for real PDFs
+        if (activeJobId.startsWith('demo_')) {
+          setActiveJobId('');
+          setActiveJobTitle(`桌面批量提取 (${newRows.length} 篇)`);
+          setPapers(newRows);
+        } else {
+          setPapers((prev) => [...prev, ...newRows]);
+        }
+      }
+    },
+    [papers, activeJobId]
+  );
+
+  const ensureActiveCloudJob = useCallback(
+    async (paperCountHint: number): Promise<string> => {
+      if (activeJobId && !activeJobId.startsWith('demo_')) {
+        return activeJobId;
+      }
+      const resp = await fetch('/api/jobs', {
+        method: 'POST',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          title: `PC 批量矩阵 (${paperCountHint}篇) · ${new Date().toLocaleTimeString(
+            'zh-CN',
+            { hour: '2-digit', minute: '2-digit', hour12: false }
+          )}`,
+          model: settings.model,
+          language: settings.language,
+          thinkingLevel: settings.thinkingLevel,
+          concurrency: settings.concurrency,
+          customDimensions: settings.customDimensions,
+        }),
       });
-    }
-
-    if (newRows.length > 0) {
-      setPapers((prev) => [...prev, ...newRows]);
-    }
-  }, [papers]);
+      const data = await resp.json();
+      if (!resp.ok || !data?.job?.id) {
+        throw new Error(data?.error || '创建云端矩阵批次失败');
+      }
+      setActiveJobId(data.job.id);
+      setActiveJobTitle(data.job.title);
+      return data.job.id as string;
+    },
+    [activeJobId, getAuthHeaders, settings]
+  );
 
   const extractSinglePaper = useCallback(
-    async (paper: PaperRow) => {
-      const file = fileMapRef.current.get(paper.id);
+    async (paper: PaperRow, jobId: string) => {
+      let file = fileMapRef.current.get(paper.id);
+
+      // Support re-extracting a paper whose PDF is already persisted on the server
+      if (!file && paper.hasPdf) {
+        try {
+          const pdfResp = await fetch(`/api/papers/${paper.id}/pdf`);
+          if (pdfResp.ok) {
+            const blob = await pdfResp.blob();
+            file = new File([blob], paper.fileName, { type: 'application/pdf' });
+            fileMapRef.current.set(paper.id, file);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       if (!file) {
         setPapers((prev) =>
           prev.map((p) =>
             p.id === paper.id
-              ? { ...p, status: 'error', error: '找不到本地 PDF 文件，请重新拖入' }
+              ? { ...p, status: 'error', error: '找不到本地或云端 PDF 文件，请重新拖入' }
               : p
           )
         );
@@ -159,6 +275,8 @@ export function App() {
       try {
         const formData = new FormData();
         formData.append('pdf', file);
+        formData.append('jobId', jobId);
+        formData.append('existingPaperId', paper.id);
         formData.append('fileName', file.name);
         formData.append('model', settings.model);
         formData.append('language', settings.language);
@@ -173,14 +291,9 @@ export function App() {
           );
         }
 
-        const headers: Record<string, string> = {};
-        if (settings.apiKey.trim()) {
-          headers['x-gemini-api-key'] = settings.apiKey.trim();
-        }
-
         const resp = await fetch('/api/extract', {
           method: 'POST',
-          headers,
+          headers: getAuthHeaders(),
           body: formData,
         });
 
@@ -194,7 +307,9 @@ export function App() {
             p.id === paper.id
               ? {
                   ...p,
+                  id: payload.paper?.id || paper.id,
                   status: 'done',
+                  hasPdf: true,
                   extraction: payload.extraction,
                   durationMs: payload.durationMs,
                   modelUsed: payload.modelUsed,
@@ -211,7 +326,7 @@ export function App() {
         );
       }
     },
-    [settings]
+    [settings, getAuthHeaders]
   );
 
   const runQueue = useCallback(
@@ -228,21 +343,36 @@ export function App() {
       if (targets.length === 0) return;
 
       setIsRunning(true);
-      const queue = [...targets];
-      const workerCount = Math.min(settings.concurrency, queue.length);
+      try {
+        const jobId = await ensureActiveCloudJob(papers.length);
+        const queue = [...targets];
+        const workerCount = Math.min(settings.concurrency, queue.length);
 
-      const workers = Array.from({ length: workerCount }, async () => {
-        while (queue.length > 0) {
-          const next = queue.shift();
-          if (!next) break;
-          await extractSinglePaper(next);
-        }
-      });
+        const workers = Array.from({ length: workerCount }, async () => {
+          while (queue.length > 0) {
+            const next = queue.shift();
+            if (!next) break;
+            await extractSinglePaper(next, jobId);
+          }
+        });
 
-      await Promise.all(workers);
-      setIsRunning(false);
+        await Promise.all(workers);
+        await fetchCloudJobs();
+      } catch (err) {
+        alert(err instanceof Error ? err.message : '批量队列启动失败');
+      } finally {
+        setIsRunning(false);
+      }
     },
-    [isRunning, hasApiKey, papers, settings.concurrency, extractSinglePaper]
+    [
+      isRunning,
+      hasApiKey,
+      papers,
+      settings.concurrency,
+      ensureActiveCloudJob,
+      extractSinglePaper,
+      fetchCloudJobs,
+    ]
   );
 
   const handleRetryFailed = () => {
@@ -258,37 +388,61 @@ export function App() {
 
   const handleReextractPaper = (paperId: string) => {
     if (isRunning) return;
-    if (!fileMapRef.current.has(paperId)) {
-      alert('该记录的本地 PDF 文件已不在当前内存中，请重新拖入该 PDF。');
+    const target = papers.find((p) => p.id === paperId);
+    if (!fileMapRef.current.has(paperId) && !target?.hasPdf) {
+      alert('该记录无原始 PDF 文件，请重新拖入该 PDF。');
       return;
     }
     runQueue([paperId]);
   };
 
-  const handleLoadDemo = () => {
-    setPapers((prev) => {
-      const existingIds = new Set(prev.map((p) => p.id));
-      const additions = DEMO_PAPERS.filter((d) => !existingIds.has(d.id));
-      return [...prev, ...additions];
-    });
+  const handleLoadDemo = async () => {
+    try {
+      const resp = await fetch('/api/jobs/demo', {
+        method: 'POST',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.job) {
+          setActiveJobId(data.job.id);
+          setActiveJobTitle(data.job.title);
+          setPapers(data.job.papers || []);
+          fetchCloudJobs();
+          return;
+        }
+      }
+    } catch {
+      // Fallback to offline demo
+    }
+    setPapers(DEMO_PAPERS);
   };
 
   const handleClearAll = () => {
     if (isRunning) return;
     fileMapRef.current.clear();
+    setActiveJobId('');
+    setActiveJobTitle('新建工作台');
     setPapers([]);
     setProvenanceTarget(null);
   };
 
-  const handleRemovePaper = (id: string) => {
+  const handleRemovePaper = async (id: string) => {
     fileMapRef.current.delete(id);
     setPapers((prev) => prev.filter((p) => p.id !== id));
     if (provenanceTarget?.paperId === id) {
       setProvenanceTarget(null);
     }
+    if (activeJobId) {
+      await fetch(`/api/jobs/${activeJobId}/papers/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      }).catch(() => {});
+      fetchCloudJobs();
+    }
   };
 
-  const handleUpdateCellSummary = (
+  const handleUpdateCellSummary = async (
     paperId: string,
     dimKey: string,
     newSummary: string
@@ -313,6 +467,75 @@ export function App() {
         return { ...p, extraction: ext };
       })
     );
+
+    if (activeJobId) {
+      await fetch(`/api/jobs/${activeJobId}/papers/${paperId}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ dimKey, summary: newSummary }),
+      }).catch(() => {});
+    }
+  };
+
+  const handleSelectCloudJob = (job: CloudJobSummary) => {
+    setActiveJobId(job.id);
+    setActiveJobTitle(job.title);
+    setPapers(job.papers || []);
+    setCloudDrawerOpen(false);
+  };
+
+  const handleCreateNewJob = async () => {
+    fileMapRef.current.clear();
+    setActiveJobId('');
+    setActiveJobTitle('新建工作台');
+    setPapers([]);
+    setCloudDrawerOpen(false);
+  };
+
+  const handleRenameJob = async (jobId: string, title: string) => {
+    const resp = await fetch(`/api/jobs/${jobId}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ title }),
+    });
+    if (resp.ok) {
+      if (jobId === activeJobId) setActiveJobTitle(title);
+      fetchCloudJobs();
+    }
+  };
+
+  const handleDeleteCloudJob = async (jobId: string) => {
+    await fetch(`/api/jobs/${jobId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(),
+    });
+    if (jobId === activeJobId) {
+      setActiveJobId('');
+      setActiveJobTitle('新建工作台');
+      setPapers([]);
+    }
+    fetchCloudJobs();
+  };
+
+  const handleBindSyncCode = async (targetCode: string) => {
+    const resp = await fetch('/api/auth/pair', {
+      method: 'POST',
+      headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ syncCode: targetCode }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      throw new Error(data?.error || '绑定失败');
+    }
+    if (data.token) {
+      setAuthToken(data.token);
+      localStorage.setItem(WEB_TOKEN_STORAGE_KEY, data.token);
+    }
+    if (data.user) {
+      setSyncCode(data.user.syncCode || '');
+      setUserName(data.user.nickName || '已跨端绑定用户');
+    }
+    await fetchCloudJobs(data.token, true);
   };
 
   const handleGenerateSynthesis = async () => {
@@ -328,16 +551,9 @@ export function App() {
     setSynthesisError(null);
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (settings.apiKey.trim()) {
-        headers['x-gemini-api-key'] = settings.apiKey.trim();
-      }
-
       const resp = await fetch('/api/synthesize', {
         method: 'POST',
-        headers,
+        headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
           model: settings.model,
           language: settings.language,
@@ -398,6 +614,9 @@ export function App() {
   };
 
   const completedCount = papers.filter((p) => p.status === 'done').length;
+  const activeTargetPaper = provenanceTarget
+    ? papers.find((p) => p.id === provenanceTarget.paperId)
+    : undefined;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -409,22 +628,45 @@ export function App() {
               <BookOpenCheck className="h-5 w-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-base font-bold tracking-tight text-slate-900">
                   LitMatrix · 文献综述矩阵提取器
                 </h1>
                 <span className="rounded-full bg-indigo-50 px-2 py-0.5 font-mono text-[10px] font-semibold text-indigo-700 ring-1 ring-indigo-200/70">
-                  AI Studio · {settings.model}
+                  {settings.model}
                 </span>
+                {activeJobId && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200/80">
+                    <Database className="h-2.5 w-2.5" />
+                    已同步：{activeJobTitle}
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-slate-500">
-                批量解析 20+ 篇 PDF · 抽取「研究问题 / 方法 / 数据集 / 结论 / 局限性」· 精确页码溯源
+                电脑批量拖入 20+ 篇 PDF · SQLite 持久化 · 手机微信小程序实时互通查看与转发
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* JSON Backup / Restore */}
+            {/* Cloud Sync & WeChat Handoff Button */}
+            <button
+              type="button"
+              onClick={() => {
+                fetchCloudJobs();
+                setCloudDrawerOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/90 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+            >
+              <Smartphone className="h-3.5 w-3.5" />
+              <span>微信互通 · 云端库 ({cloudJobs.length})</span>
+              {syncCode && (
+                <span className="font-mono rounded bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                  {syncCode}
+                </span>
+              )}
+            </button>
+
             <input
               ref={importJsonRef}
               type="file"
@@ -439,7 +681,7 @@ export function App() {
               title="导入此前保存的矩阵 JSON"
             >
               <Upload className="h-3.5 w-3.5" />
-              导入记录
+              导入
             </button>
             {completedCount > 0 && (
               <button
@@ -449,7 +691,7 @@ export function App() {
                 title="备份当前矩阵 JSON"
               >
                 <Download className="h-3.5 w-3.5" />
-                备份 JSON
+                备份
               </button>
             )}
 
@@ -513,7 +755,28 @@ export function App() {
         pdfFile={
           provenanceTarget ? fileMapRef.current.get(provenanceTarget.paperId) : undefined
         }
+        pdfUrl={
+          provenanceTarget && activeTargetPaper?.hasPdf
+            ? `/api/papers/${provenanceTarget.paperId}/pdf`
+            : undefined
+        }
         onClose={() => setProvenanceTarget(null)}
+      />
+
+      <CloudSyncDrawer
+        open={cloudDrawerOpen}
+        syncCode={syncCode}
+        userName={userName}
+        activeJobId={activeJobId}
+        jobs={cloudJobs}
+        loading={cloudLoading}
+        onClose={() => setCloudDrawerOpen(false)}
+        onRefresh={() => fetchCloudJobs()}
+        onSelectJob={handleSelectCloudJob}
+        onCreateNewJob={handleCreateNewJob}
+        onRenameJob={handleRenameJob}
+        onDeleteJob={handleDeleteCloudJob}
+        onBindSyncCode={handleBindSyncCode}
       />
 
       <SettingsModal

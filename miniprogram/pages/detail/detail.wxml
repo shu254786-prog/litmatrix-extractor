@@ -12,6 +12,14 @@
         <text class="ios-pill">PDF 共 {{paper.pageCount || paper.extraction.total_pages_detected}} 页</text>
         <text class="file-name">{{paper.fileName}}</text>
       </view>
+      <button
+        wx:if="{{paper.hasPdf}}"
+        class="ios-btn-tinted open-pdf-btn"
+        hover-class="ios-press"
+        bindtap="onOpenOriginalPdf"
+      >
+        📄 打开原论文 PDF 对照阅读 / 转发
+      </button>
     </view>
 
     <!-- Five Dimension Cards -->

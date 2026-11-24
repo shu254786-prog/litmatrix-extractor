@@ -9,6 +9,7 @@ import {
   BookOpen,
   FileWarning,
   Loader2,
+  ExternalLink,
 } from 'lucide-react';
 import type { ProvenanceTarget } from '../types/matrix';
 import { renderPdfPageToCanvas, type HighlightRect } from '../utils/pdfHelper';
@@ -16,12 +17,14 @@ import { renderPdfPageToCanvas, type HighlightRect } from '../utils/pdfHelper';
 interface ProvenanceDrawerProps {
   target: ProvenanceTarget | null;
   pdfFile?: File;
+  pdfUrl?: string;
   onClose: () => void;
 }
 
 export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
   target,
   pdfFile,
+  pdfUrl,
   onClose,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -32,6 +35,8 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
   const [renderError, setRenderError] = useState<string | null>(null);
   const [highlights, setHighlights] = useState<HighlightRect[]>([]);
 
+  const hasPdfSource = Boolean(pdfFile || pdfUrl);
+
   useEffect(() => {
     if (target) {
       setCurrentPage(target.citation.pdf_page || 1);
@@ -40,7 +45,7 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
   }, [target]);
 
   useEffect(() => {
-    if (!target || !pdfFile || !canvasRef.current) {
+    if (!target || !hasPdfSource || !canvasRef.current) {
       setHighlights([]);
       return;
     }
@@ -51,6 +56,7 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
 
     renderPdfPageToCanvas({
       file: pdfFile,
+      pdfUrl,
       pageNumber: currentPage,
       canvas: canvasRef.current,
       scale,
@@ -73,7 +79,7 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [target, pdfFile, currentPage, scale]);
+  }, [target, hasPdfSource, pdfFile, pdfUrl, currentPage, scale]);
 
   if (!target) return null;
 
@@ -83,7 +89,7 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
         {/* Header */}
         <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-semibold text-indigo-700">
                 <BookOpen className="h-3.5 w-3.5" />
                 页码溯源 · {target.dimensionLabel}
@@ -91,6 +97,17 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
               <span className="font-mono rounded-md bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
                 PDF P.{target.citation.pdf_page}
               </span>
+              {pdfUrl && (
+                <a
+                  href={`${pdfUrl}#page=${target.citation.pdf_page}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
+                >
+                  新标签打开原 PDF
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
             </div>
             <h3 className="mt-1.5 truncate text-sm font-semibold text-slate-900">
               {target.paperTitle}
@@ -128,7 +145,7 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
         </div>
 
         {/* PDF Toolbar */}
-        {pdfFile && (
+        {hasPdfSource && (
           <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-2">
             <div className="flex items-center gap-1.5">
               <button
@@ -187,16 +204,16 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
 
         {/* PDF Viewport */}
         <div className="relative flex-1 overflow-auto bg-slate-200/70 p-4">
-          {!pdfFile ? (
+          {!hasPdfSource ? (
             <div className="mx-auto mt-10 max-w-md rounded-xl border border-slate-200 bg-white p-6 text-center shadow-xs">
               <FileWarning className="mx-auto h-9 w-9 text-amber-500" />
               <h4 className="mt-3 text-sm font-semibold text-slate-900">
-                当前条目为示例数据或刷新后恢复的记录
+                当前条目为内置示例文献（无关联 PDF 原件）
               </h4>
               <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-                本地 PDF 二进制文件仅保存在当前会话内存中。拖入您的真实论文 PDF 提取后，点击任意{' '}
+                无论是从电脑网页端拖入还是从微信小程序上传的真实论文 PDF，都会自动持久化在服务端数据库与文件库中，点击任意{' '}
                 <code className="rounded bg-slate-100 px-1 py-0.5">P.页码</code>{' '}
-                即可在此直接渲染对应页面并高亮原文摘录。
+                均可跨端渲染对应页面并高亮原文摘录。
               </p>
             </div>
           ) : renderError ? (
@@ -211,7 +228,6 @@ export const ProvenanceDrawer: React.FC<ProvenanceDrawerProps> = ({
                 </div>
               )}
               <canvas ref={canvasRef} className="block rounded-sm bg-white" />
-              {/* Highlight overlay layer */}
               <div className="pointer-events-none absolute inset-0">
                 {highlights.map((h, i) => (
                   <div

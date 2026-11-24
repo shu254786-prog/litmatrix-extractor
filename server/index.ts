@@ -8,6 +8,8 @@ import * as fs from 'node:fs';
 import { extractPaperMatrix, synthesizeLiteratureReview } from './geminiExtractor.js';
 import { buildExcelBuffer, buildMarkdownText } from './exportBuilder.js';
 import {
+  bindSessionBySyncCode,
+  createOrRestoreWebSession,
   getSessionByToken,
   loginWithWeChatCode,
   updateSessionProfile,
@@ -17,9 +19,13 @@ import {
   createDemoJob,
   createJob,
   deleteJob,
+  deletePaperFromJob,
   getJob,
+  getPaperPdfPath,
   listJobs,
-  serializeJob,
+  recordExtractedPaperInJob,
+  renameJob,
+  requeueFailedPapers,
   startJobQueue,
   updatePaperSummaryInJob,
 } from './jobStore.js';
@@ -52,7 +58,8 @@ function resolveBearerToken(req: express.Request): string {
   if (auth.toLowerCase().startsWith('bearer ')) {
     return auth.slice(7).trim();
   }
-  return '';
+  const queryToken = typeof req.query.token === 'string' ? req.query.token.trim() : '';
+  return queryToken;
 }
 
 function resolveOwnerId(req: express.Request): string {
@@ -61,7 +68,7 @@ function resolveOwnerId(req: express.Request): string {
   return session?.userId || 'anonymous';
 }
 
-// Optional WeChat msgSecCheck helper (enabled when WECHAT_APPID & WECHAT_APPSECRET are configured)
+// Optional WeChat msgSecCheck helper
 let cachedWxToken: { token: string; expiresAt: number } | null = null;
 async function checkWeChatTextSafety(content: string): Promise<boolean> {
   const appId = process.env.WECHAT_APPID?.trim();
@@ -108,6 +115,7 @@ async function checkWeChatTextSafety(content: string): Promise<boolean> {
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
+    persistentDb: 'sqlite',
     hasServerApiKey: Boolean(process.env.GEMINI_API_KEY?.trim()),
     wechatSafetyEnabled: Boolean(
       process.env.WECHAT_APPID?.trim() && process.env.WECHAT_APPSECRET?.trim()
@@ -115,7 +123,13 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// ---- WeChat Authentication Endpoints ----
+// ---- Auth & Cross-Device Continuity Pairing ----
+app.post('/api/auth/web-session', (req, res) => {
+  const token = resolveBearerToken(req) || (req.body && req.body.token) || '';
+  const result = createOrRestoreWebSession(token);
+  res.json(result);
+});
+
 app.post('/api/auth/wechat-login', async (req, res) => {
   try {
     const { code, nickName, avatarUrl, isGuest } = req.body || {};
@@ -135,6 +149,17 @@ app.post('/api/auth/wechat-login', async (req, res) => {
     res.json(result);
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : '登录失败' });
+  }
+});
+
+app.post('/api/auth/pair', (req, res) => {
+  try {
+    const currentToken = resolveBearerToken(req);
+    const syncCode = String(req.body?.syncCode || '');
+    const result = bindSessionBySyncCode(currentToken, syncCode);
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(400).json({ error: err instanceof Error ? err.message : '绑定失败' });
   }
 });
 
@@ -170,7 +195,20 @@ app.patch('/api/auth/profile', async (req, res) => {
   res.json({ user: updated });
 });
 
-// ---- Web Synchronous Single-PDF Endpoint ----
+// ---- Serve Persisted Original PDF for Provenance Viewer & WeChat OpenDocument ----
+app.get('/api/papers/:paperId/pdf', (req, res) => {
+  const found = getPaperPdfPath(String(req.params.paperId));
+  if (!found) {
+    res.status(404).json({ error: '未找到该论文的原始 PDF 文件' });
+    return;
+  }
+  const encoded = encodeURIComponent(found.fileName);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encoded}`);
+  res.sendFile(found.pdfPath);
+});
+
+// ---- Web Single-PDF Extract Endpoint (Also Persists into SQLite Job!) ----
 app.post('/api/extract', upload.single('pdf'), async (req, res) => {
   try {
     const apiKey = resolveApiKey(req);
@@ -206,6 +244,20 @@ app.post('/api/extract', upload.single('pdf'), async (req, res) => {
       }
     }
 
+    const ownerId = resolveOwnerId(req);
+    let jobId = typeof req.body.jobId === 'string' ? req.body.jobId.trim() : '';
+    if (!jobId || !getJob(jobId)) {
+      const created = createJob({
+        ownerId,
+        title: `桌面端批量提取`,
+        model,
+        language,
+        thinkingLevel,
+        customDimensions,
+      });
+      jobId = created.id;
+    }
+
     const startedAt = Date.now();
     const extraction = await extractPaperMatrix({
       apiKey,
@@ -217,10 +269,24 @@ app.post('/api/extract', upload.single('pdf'), async (req, res) => {
       thinkingLevel,
       customDimensions,
     });
+    const durationMs = Date.now() - startedAt;
+
+    const savedPaper = await recordExtractedPaperInJob({
+      jobId,
+      existingPaperId: req.body.existingPaperId || undefined,
+      fileName: originalName,
+      pdfBuffer: req.file.buffer,
+      pageCount: totalPagesHint || extraction.total_pages_detected || 0,
+      extraction,
+      durationMs,
+      modelUsed: model,
+    });
 
     res.json({
+      jobId,
+      paper: savedPaper,
       extraction,
-      durationMs: Date.now() - startedAt,
+      durationMs,
       modelUsed: model,
     });
   } catch (err: unknown) {
@@ -259,7 +325,7 @@ app.post('/api/synthesize', async (req, res) => {
   }
 });
 
-// ---- Mini Program Async Batch Job & Library Endpoints ----
+// ---- Persistent Jobs & Cloud Library Endpoints (Shared by PC Web & WeChat Mini Program) ----
 app.get('/api/jobs', (req, res) => {
   const ownerId = resolveOwnerId(req);
   res.json({ jobs: listJobs(ownerId) });
@@ -300,7 +366,7 @@ app.post('/api/jobs', async (req, res) => {
       customDimensions,
     });
 
-    res.json({ job: serializeJob(job) });
+    res.json({ job });
   } catch (err: unknown) {
     res.status(500).json({ error: err instanceof Error ? err.message : '创建任务失败' });
   }
@@ -309,60 +375,82 @@ app.post('/api/jobs', async (req, res) => {
 app.post('/api/jobs/demo', (req, res) => {
   const ownerId = resolveOwnerId(req);
   const job = createDemoJob(ownerId);
-  res.json({ job: serializeJob(job) });
+  res.json({ job });
 });
 
-app.post('/api/jobs/:jobId/upload', upload.single('pdf'), (req, res) => {
-  const job = getJob(String(req.params.jobId));
-  if (!job) {
-    res.status(404).json({ error: '任务不存在或已过期' });
+app.patch('/api/jobs/:jobId', async (req, res) => {
+  const jobId = String(req.params.jobId);
+  const title = String(req.body?.title || '').trim();
+  if (!title) {
+    res.status(400).json({ error: '标题不能为空' });
     return;
   }
-  if (!req.file) {
-    res.status(400).json({ error: '未收到 PDF 文件' });
+  const safe = await checkWeChatTextSafety(title);
+  if (!safe) {
+    res.status(400).json({ error: '标题包含违规词汇' });
     return;
   }
-
-  const fileName = req.body.fileName || req.file.originalname || 'paper.pdf';
-  const paper = addPdfToJob(job, fileName, req.file.buffer);
-  const autoStart = req.body.autoStart === 'true' || req.body.autoStart === true;
-
-  const key = resolveApiKey(req) || job.apiKey;
-  if (autoStart && key) {
-    startJobQueue(job, key);
+  const updated = renameJob(jobId, title);
+  if (!updated) {
+    res.status(404).json({ error: '任务不存在' });
+    return;
   }
+  res.json({ job: updated });
+});
 
-  res.json({
-    paper: { ...paper, pdfBuffer: undefined },
-    job: serializeJob(job),
-  });
+app.post('/api/jobs/:jobId/upload', upload.single('pdf'), async (req, res) => {
+  try {
+    const jobId = String(req.params.jobId);
+    const job = getJob(jobId);
+    if (!job) {
+      res.status(404).json({ error: '任务不存在或已过期' });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ error: '未收到 PDF 文件' });
+      return;
+    }
+
+    const fileName = req.body.fileName || req.file.originalname || 'paper.pdf';
+    const pageCountHint = req.body.totalPages ? Number(req.body.totalPages) : 0;
+    const paper = await addPdfToJob(jobId, fileName, req.file.buffer, pageCountHint);
+    const autoStart = req.body.autoStart === 'true' || req.body.autoStart === true;
+
+    const key = resolveApiKey(req);
+    if (autoStart && key) {
+      startJobQueue(jobId, key);
+    }
+
+    res.json({
+      paper,
+      job: getJob(jobId),
+    });
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : '上传失败' });
+  }
 });
 
 app.post('/api/jobs/:jobId/start', (req, res) => {
-  const job = getJob(String(req.params.jobId));
+  const jobId = String(req.params.jobId);
+  const job = getJob(jobId);
   if (!job) {
     res.status(404).json({ error: '任务不存在或已过期' });
     return;
   }
-  const apiKey = resolveApiKey(req) || job.apiKey;
+  const apiKey = resolveApiKey(req);
   if (!apiKey) {
     res.status(400).json({
-      error: '缺少 Google AI Studio API Key，请在「我的 -> 模型与 API」中填写或配置服务端 GEMINI_API_KEY。',
+      error: '缺少 Google AI Studio API Key，请在设置中填写或配置服务端 GEMINI_API_KEY。',
     });
     return;
   }
 
   if (req.body?.retry) {
-    for (const p of job.papers) {
-      if (p.status === 'error' && p.pdfBuffer) {
-        p.status = 'queued';
-        p.error = undefined;
-      }
-    }
+    requeueFailedPapers(jobId);
   }
 
-  startJobQueue(job, apiKey);
-  res.json({ job: serializeJob(job) });
+  startJobQueue(jobId, apiKey);
+  res.json({ job: getJob(jobId) });
 });
 
 app.get('/api/jobs/:jobId', (req, res) => {
@@ -371,7 +459,7 @@ app.get('/api/jobs/:jobId', (req, res) => {
     res.status(404).json({ error: '任务不存在或已过期' });
     return;
   }
-  res.json({ job: serializeJob(job) });
+  res.json({ job });
 });
 
 app.delete('/api/jobs/:jobId', (req, res) => {
@@ -379,8 +467,21 @@ app.delete('/api/jobs/:jobId', (req, res) => {
   res.json({ ok });
 });
 
+app.delete('/api/jobs/:jobId/papers/:paperId', (req, res) => {
+  const updated = deletePaperFromJob(
+    String(req.params.jobId),
+    String(req.params.paperId)
+  );
+  if (!updated) {
+    res.status(404).json({ error: '任务不存在' });
+    return;
+  }
+  res.json({ job: updated });
+});
+
 app.patch('/api/jobs/:jobId/papers/:paperId', async (req, res) => {
-  const job = getJob(String(req.params.jobId));
+  const jobId = String(req.params.jobId);
+  const job = getJob(jobId);
   if (!job) {
     res.status(404).json({ error: '任务不存在或已过期' });
     return;
@@ -395,12 +496,12 @@ app.patch('/api/jobs/:jobId/papers/:paperId', async (req, res) => {
     res.status(400).json({ error: '内容包含违规词汇' });
     return;
   }
-  const updated = updatePaperSummaryInJob(job, String(req.params.paperId), dimKey, summary);
-  if (!updated) {
+  const ok = updatePaperSummaryInJob(jobId, String(req.params.paperId), dimKey, summary);
+  if (!ok) {
     res.status(404).json({ error: '未找到对应论文或维度' });
     return;
   }
-  res.json({ job: serializeJob(job) });
+  res.json({ job: getJob(jobId) });
 });
 
 app.get('/api/jobs/:jobId/export/xlsx', async (req, res) => {
@@ -460,7 +561,7 @@ app.post('/api/jobs/:jobId/synthesize', async (req, res) => {
       res.status(404).json({ error: '任务不存在或已过期' });
       return;
     }
-    const apiKey = resolveApiKey(req) || job.apiKey;
+    const apiKey = resolveApiKey(req);
     if (!apiKey) {
       res.status(400).json({ error: '缺少 Google AI Studio API Key。' });
       return;

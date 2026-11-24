@@ -5,6 +5,8 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).toString();
 
+const remotePdfCache = new Map<string, ArrayBuffer>();
+
 export async function getPdfPageCount(file: File): Promise<number> {
   try {
     const buffer = await file.arrayBuffer();
@@ -25,16 +27,37 @@ export interface HighlightRect {
   heightPct: number;
 }
 
+async function loadPdfBytes(file?: File, pdfUrl?: string): Promise<Uint8Array> {
+  if (file) {
+    const buf = await file.arrayBuffer();
+    return new Uint8Array(buf.slice(0));
+  }
+  if (pdfUrl) {
+    let cached = remotePdfCache.get(pdfUrl);
+    if (!cached) {
+      const resp = await fetch(pdfUrl);
+      if (!resp.ok) {
+        throw new Error(`无法从服务端加载 PDF (HTTP ${resp.status})`);
+      }
+      cached = await resp.arrayBuffer();
+      remotePdfCache.set(pdfUrl, cached);
+    }
+    return new Uint8Array(cached.slice(0));
+  }
+  throw new Error('缺少 PDF 文件源');
+}
+
 export async function renderPdfPageToCanvas(params: {
-  file: File;
+  file?: File;
+  pdfUrl?: string;
   pageNumber: number;
   canvas: HTMLCanvasElement;
   scale?: number;
   highlightQuote?: string;
 }): Promise<{ numPages: number; highlights: HighlightRect[]; pageText: string }> {
-  const { file, pageNumber, canvas, scale = 1.45, highlightQuote } = params;
-  const buffer = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({ data: buffer });
+  const { file, pdfUrl, pageNumber, canvas, scale = 1.45, highlightQuote } = params;
+  const data = await loadPdfBytes(file, pdfUrl);
+  const loadingTask = pdfjsLib.getDocument({ data });
   const pdf = await loadingTask.promise;
 
   try {
@@ -58,7 +81,6 @@ export async function renderPdfPageToCanvas(params: {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     await page.render({ canvasContext: ctx, viewport, canvas }).promise;
 
-    // Extract text items for provenance quote highlighting
     const textContent = await page.getTextContent();
     const items = textContent.items as Array<{
       str: string;

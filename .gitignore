@@ -1,6 +1,10 @@
 # Dependencies & Build
 node_modules/
 dist/
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 *.tsbuildinfo
 
 # Environment & Secrets

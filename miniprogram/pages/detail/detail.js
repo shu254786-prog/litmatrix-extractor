@@ -48,6 +48,24 @@ Page({
     this.setData({ jobId: job.id, paper, sections });
   },
 
+  async onOpenOriginalPdf() {
+    if (!this.data.paper) return;
+    getApp().haptic('light');
+    wx.showLoading({ title: '加载原 PDF...' });
+    try {
+      const tempPath = await api.downloadPaperPdf(this.data.paper.id);
+      wx.hideLoading();
+      wx.openDocument({
+        filePath: tempPath,
+        fileType: 'pdf',
+        showMenu: true,
+      });
+    } catch (err) {
+      wx.hideLoading();
+      wx.showToast({ title: err.message || '打开 PDF 失败', icon: 'none' });
+    }
+  },
+
   onCopyQuote(e) {
     const { quote, page } = e.currentTarget.dataset;
     getApp().haptic('light');

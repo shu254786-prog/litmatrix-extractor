@@ -34,6 +34,13 @@
   white-space: nowrap;
 }
 
+.open-pdf-btn {
+  margin-top: 20rpx;
+  width: 100%;
+  padding: 16rpx 0;
+  line-height: 1.3;
+}
+
 .sec-head {
   display: flex;
   justify-content: space-between;

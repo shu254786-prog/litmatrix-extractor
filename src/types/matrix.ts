@@ -56,6 +56,7 @@ export interface PaperRow {
   durationMs?: number;
   modelUsed?: string;
   isDemo?: boolean;
+  hasPdf?: boolean;
   extraction?: PaperExtractionResult;
 }
 
